@@ -26,6 +26,7 @@ SECTION_NAMES = {"1": "Business", "1A": "Risk Factors", "7": "Management's Discu
 ITEM_RE = re.compile(r"^\s*item\s+(\d{1,2}[abc]?)\b\s*[\.\:\-–—]?\s*(.*)$", re.I)
 BLOCK = {"p", "div", "br", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6", "table", "section"}
 SKIP = {"script", "style", "ix:header"}
+MAX_PAGES = 15   # older submission pages to read when "recent" holds too few 10-Ks (busy filers like banks)
 MIN_GAP = 0.13   # seconds between requests: stays under the SEC limit of 10 per second
 
 
@@ -93,7 +94,7 @@ class SecFilings(Source):
     id = "sec-10k"
     schema = "rag_sec"
     params = [
-        Param("tickers", "AAPL,JPM,PFE,XOM,WMT", "Comma-separated tickers"),
+        Param("tickers", "AAPL,JPM,PFE,WMT,CVX", "Comma-separated tickers; pin an entity with TICKER=CIK (e.g. after a holding-company reorganisation)"),
         Param("filings", 2, "Latest N 10-K filings per company"),
         Param("sections", "1,1A,7", "10-K Items to index (1 Business, 1A Risk Factors, 7 MD&A, 7A, 3, 9A)"),
         Param("user_agent", None, "EDGAR requires your name and email address, e.g. 'Jane Doe jane at example.com' written with a real @", required=True),
@@ -116,6 +117,23 @@ class SecFilings(Source):
         f.write_bytes(data)
         return data
 
+    @staticmethod
+    def _rows(cols: Dict[str, List[str]], limit: int) -> List[Dict[str, str]]:
+        idx = [i for i, f in enumerate(cols["form"]) if f == "10-K"][:limit]
+        return [{"acc": cols["accessionNumber"][i], "doc": cols["primaryDocument"][i],
+                 "report": cols.get("reportDate", [""] * len(cols["form"]))[i], "filed": cols["filingDate"][i]} for i in idx]
+
+    def _tenks(self, ctx: PackContext, cik: int, n: int):
+        """Latest n 10-Ks. EDGAR's `recent` block holds only the newest ~1000 filings, which for banks can contain a
+        single 10-K, so older pages are read (newest first) until enough are found."""
+        sub = self._json(ctx, f"https://data.sec.gov/submissions/CIK{cik:010d}.json")
+        rows = self._rows(sub["filings"]["recent"], n)
+        for page in sub["filings"].get("files", [])[:MAX_PAGES]:
+            if len(rows) >= n:
+                break
+            rows += self._rows(self._json(ctx, f"https://data.sec.gov/submissions/{page['name']}"), n - len(rows))
+        return sub.get("name", ""), rows
+
     def _json(self, ctx: PackContext, url: str) -> Any:
         return json.loads(self._get(ctx, url))
 
@@ -129,28 +147,32 @@ class SecFilings(Source):
         n = max(1, int(ctx.params["filings"]))
         if len(tickers) * n > 25:
             raise PackError("more than 25 filings requested: EDGAR asks for moderate use, and Free Edition storage is small")
-        directory = self._json(ctx, "https://www.sec.gov/files/company_tickers.json")
-        by_ticker = {v["ticker"].upper(): v for v in directory.values()}
+        directory = None
         out: List[Dict[str, Any]] = []
         for t in tickers:
-            if t not in by_ticker:
-                raise PackError(f"ticker not found in EDGAR: {t}")
-            cik, name = int(by_ticker[t]["cik_str"]), by_ticker[t]["title"]
-            sub = self._json(ctx, f"https://data.sec.gov/submissions/CIK{cik:010d}.json")["filings"]["recent"]
-            rows = [i for i, f in enumerate(sub["form"]) if f == "10-K"][:n]
+            t, _, pin = t.partition("=")
+            if pin:
+                cik = int(pin)
+            else:
+                if directory is None:
+                    directory = {v["ticker"].upper(): v for v in self._json(ctx, "https://www.sec.gov/files/company_tickers.json").values()}
+                if t not in directory:
+                    raise PackError(f"ticker not found in EDGAR: {t}")
+                cik = int(directory[t]["cik_str"])
+            name, rows = self._tenks(ctx, cik, n)
             if not rows:
-                raise PackError(f"no 10-K found for {t}")
-            for i in rows:
-                acc, doc = sub["accessionNumber"][i], sub["primaryDocument"][i]
-                url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc.replace('-', '')}/{doc}"
+                raise PackError(f"no 10-K found for {t} (CIK {cik}). If the company reorganised, its filings may sit under an older CIK: "
+                                f"pin it with --param tickers={t}=<old CIK>")
+            for r in rows:
+                url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{r['acc'].replace('-', '')}/{r['doc']}"
                 text = html_to_text(self._get(ctx, url).decode("utf-8", "replace"))
-                fy = (sub["reportDate"][i] or sub["filingDate"][i])[:4]
+                fy = (r["report"] or r["filed"])[:4]
                 sections = split_items(text, wanted)
                 if not sections:
                     ctx.log(f"warning: no sections parsed for {t} {fy}")
                 for item, body in sections.items():
                     meta = {"ticker": t, "company": name, "form": "10-K", "fiscal_year": fy, "item": item,
-                            "section": SECTION_NAMES.get(item, f"Item {item}"), "filed": sub["filingDate"][i], "url": url}
+                            "section": SECTION_NAMES.get(item, f"Item {item}"), "filed": r["filed"], "url": url}
                     out += make_chunks(f"{t}-{fy}-{item}", f"{name} {fy} 10-K, Item {item} {meta['section']}", body, meta)
         if not out:
             raise PackError("no sections could be parsed from the filings")
@@ -166,6 +188,8 @@ class SecFilings(Source):
             {"question": "What are Pfizer's main product lines and business segments?", "expect": {"ticker": "PFE", "item": "1"}},
             {"question": "How do commodity price swings affect Exxon Mobil's results?", "expect": {"ticker": "XOM", "item": "7"}},
             {"question": "What climate and regulatory risks does Exxon Mobil identify?", "expect": {"ticker": "XOM", "item": "1A"}},
+            {"question": "How do oil and gas price changes affect Chevron's earnings?", "expect": {"ticker": "CVX", "item": "7"}},
+            {"question": "What climate and regulatory risks does Chevron identify?", "expect": {"ticker": "CVX", "item": "1A"}},
             {"question": "How did Walmart's comparable sales and operating income perform?", "expect": {"ticker": "WMT", "item": "7"}},
             {"question": "What competition and supply risks does Walmart face?", "expect": {"ticker": "WMT", "item": "1A"}},
         ]

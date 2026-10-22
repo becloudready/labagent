@@ -51,7 +51,7 @@ def sec_ctx(tmp_path, monkeypatch, tickers="ACME", **extra):
     monkeypatch.setenv("LABAGENT_HOME", str(tmp_path))
     pages = {
         "https://www.sec.gov/files/company_tickers.json": json.dumps({"0": {"cik_str": 111, "ticker": "ACME", "title": "Acme Corp"}}),
-        "https://data.sec.gov/submissions/CIK0000000111.json": json.dumps({"filings": {"recent": {
+        "https://data.sec.gov/submissions/CIK0000000111.json": json.dumps({"name": "Acme Corp", "filings": {"recent": {
             "form": ["8-K", "10-K", "10-K"], "accessionNumber": ["0001-24-1", "0001-24-2", "0001-23-3"],
             "primaryDocument": ["x.htm", "acme-2024.htm", "acme-2023.htm"],
             "reportDate": ["", "2024-12-31", "2023-12-31"], "filingDate": ["2025-01-05", "2025-02-01", "2024-02-01"]}}}),
@@ -134,3 +134,34 @@ def test_search_rejects_bad_schema_name():
 def test_eval_set_covers_only_loaded_tickers_and_is_well_formed():
     qs = SecFilings().eval_set()
     assert len(qs) >= 10 and all(q["question"] and q["expect"].get("ticker") and q["expect"].get("item") for q in qs)
+
+
+def test_older_submission_pages_are_read_when_recent_has_too_few_10ks(tmp_path, monkeypatch):
+    ctx, seen = sec_ctx(tmp_path, monkeypatch)
+    pages = {}
+    base_http = ctx.services["http"]
+    recent = {"form": ["8-K", "10-K"], "accessionNumber": ["0001-24-1", "0001-24-2"], "primaryDocument": ["x.htm", "acme-2024.htm"],
+              "reportDate": ["", "2024-12-31"], "filingDate": ["2025-01-05", "2025-02-01"]}
+    older = {"form": ["4", "10-K"], "accessionNumber": ["0001-23-9", "0001-23-3"], "primaryDocument": ["f4.xml", "acme-2023.htm"],
+             "reportDate": ["", "2023-12-31"], "filingDate": ["2024-03-01", "2024-02-01"]}
+
+    def http(url, ua):
+        if url.endswith("CIK0000000111.json"):
+            return json.dumps({"name": "Acme Corp", "filings": {"recent": recent, "files": [{"name": "CIK0000000111-submissions-001.json"}]}}).encode()
+        if url.endswith("-submissions-001.json"):
+            return json.dumps(older).encode()
+        return base_http(url, ua)
+    ctx.services["http"] = http
+    chunks = SecFilings().chunks(ctx)
+    assert {c["meta"]["fiscal_year"] for c in chunks} == {"2023", "2024"}
+
+
+def test_ticker_can_be_pinned_to_a_cik_and_missing_10k_explains_why(tmp_path, monkeypatch):
+    ctx, seen = sec_ctx(tmp_path, monkeypatch, tickers="ACME=111")
+    assert SecFilings().chunks(ctx)
+    assert not any("company_tickers" in u for u, _ in seen)        # a pinned CIK needs no directory lookup
+    ctx, _ = sec_ctx(tmp_path / "fresh-cache", monkeypatch, tickers="ACME=111", filings=1)
+    ctx.services["http"] = lambda url, ua: json.dumps({"name": "New Holdco", "filings": {"recent": {
+        "form": ["8-K"], "accessionNumber": ["1"], "primaryDocument": ["a"], "reportDate": [""], "filingDate": ["2026-07-01"]}}}).encode()
+    with pytest.raises(PackError, match="older CIK"):
+        SecFilings().chunks(ctx)
