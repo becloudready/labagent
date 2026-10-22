@@ -1,0 +1,16 @@
+command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+env:
+  - name: PGHOST
+    value: "__PGHOST__"
+  - name: PGDATABASE
+    value: "databricks_postgres"
+  - name: PGSSLMODE
+    value: "require"
+  - name: LAKEBASE_ENDPOINT
+    value: "__LAKEBASE_ENDPOINT__"
+  - name: EMBED_ENDPOINT
+    value: "__EMBED_ENDPOINT__"
+  - name: CHAT_ENDPOINT
+    value: "__CHAT_ENDPOINT__"
+  - name: TOP_K
+    value: "__TOP_K__"

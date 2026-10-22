@@ -24,6 +24,24 @@ def _emit(env: Envelope, output: str) -> None:
         Path(output).chmod(0o600)
 
 
+def _packs_main(args) -> int:
+    from .packs import registry
+    from .packs.base import run_pack
+    if args.cmd == "packs":
+        for pid, pk in sorted(registry.all_packs().items()):
+            print(f"{pid:16} {pk.summary}")
+        return 0
+    try:
+        pack = registry.get(args.pack)
+        given = dict(kv.split("=", 1) for kv in args.param)
+    except (KeyError, ValueError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    env = run_pack(pack, args.cmd, args.name, given, dry_run=args.dry_run)
+    _emit(env, args.output)
+    return env.exit_code
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="labagent", description=__doc__)
     p.add_argument("--version", action="version", version=__version__)
@@ -34,6 +52,14 @@ def main(argv=None) -> int:
     r.add_argument("--job", required=True, help="Path to job JSON (contains roster: keep it out of git and logs)")
     r.add_argument("--output", default="result.json", help="Result envelope path, or - for stdout")
     r.add_argument("--ruleset", help="Path to a ruleset JSON for audit/cleanup (merged into the job)")
+    sub.add_parser("packs", help="List available lab packs")
+    for verb, text in (("launch", "Deploy a lab pack (idempotent: re-run to resume)"), ("destroy", "Remove what a pack created")):
+        lp = sub.add_parser(verb, help=text)
+        lp.add_argument("pack")
+        lp.add_argument("--name", required=True, help="Instance name (state key and resource suffix)")
+        lp.add_argument("--param", action="append", default=[], metavar="KEY=VALUE", help="Pack parameter, repeatable")
+        lp.add_argument("--dry-run", action="store_true", help="Show the steps without running them")
+        lp.add_argument("--output", default="-", help="Result envelope path, or - for stdout")
     sub.add_parser("bootstrap-path", help="Print the path of the packaged Terraform state-backend module")
     sub.add_parser("commands", help="List supported job commands")
     args = p.parse_args(argv)
@@ -41,6 +67,8 @@ def main(argv=None) -> int:
     if args.cmd == "bootstrap-path":
         print(STATE_BACKEND_DIR)
         return 0
+    if args.cmd in ("packs", "launch", "destroy"):
+        return _packs_main(args)
     if args.cmd == "commands":
         print("\n".join(sorted(COMMANDS)))
         return 0

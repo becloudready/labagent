@@ -14,6 +14,7 @@ labagent --version
 | `provision` | Terraform creates a cohort's IAM users, group, sandbox policy and Lambda role. Passwords are issued afterwards and returned **encrypted** to your public key, so state holds no secrets |
 | `inventory`, `sweep` | List and delete what learners created. Plan first, then apply exactly that reviewed plan |
 | `reset`, `offboard` | Rotate a learner's password; destroy a cohort (refuses while resources remain) |
+| `launch`, `destroy` | Deploy a single lab from a pluggable **pack**, e.g. `rag-lakebase` ([docs](docs/packs.md)) |
 | `audit`, `cleanup` | Clean an untagged, long-lived account from an explicit **ruleset** ([docs](docs/account-cleanup.md)) |
 
 ## Safety
