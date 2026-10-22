@@ -259,11 +259,21 @@ class RagPack(Pack):
                 return
             d().json("postgres", "delete-project", f"projects/{project}")
 
+        def rm_app(c: PackContext):
+            try:
+                d().text("apps", "delete", name)
+            except PackError as e:
+                if "DELETING" not in str(e):     # a delete already in flight is success
+                    raise
+
+        def rm_code(c: PackContext):
+            d().text("workspace", "delete", c.state["app_path"], "--recursive")
+            c.state.pop("app_path", None)
+            return {}
+
         return [
-            Step("app", "Delete the Databricks App", lambda c: d().text("apps", "delete", name),
-                 check=lambda c: not d().exists("apps", "get", name)),
-            Step("code", "Delete uploaded app code", lambda c: d().text("workspace", "delete", c.state["app_path"], "--recursive"),
-                 check=lambda c: "app_path" not in c.state),
+            Step("app", "Delete the Databricks App", rm_app, check=lambda c: not d().exists("apps", "get", name)),
+            Step("code", "Delete uploaded app code", rm_code, check=lambda c: "app_path" not in c.state),
             Step("schema", "Drop this pack's schema (only when the project is reused)", rm_schema),
             Step("project", "Delete the Lakebase project (only if labagent created it)", rm_project),
         ]

@@ -257,3 +257,20 @@ def test_dbx_api_does_not_retry_other_errors():
         return type("P", (), {"returncode": 1, "stdout": "", "stderr": "PERMISSION_DENIED"})()
     with pytest.raises(PackError):
         Dbx(run=run, binary="/bin/databricks", sleep=lambda s: pytest.fail("slept")).api("post", "/x", {})
+
+
+def test_destroy_steps_return_no_text_and_tolerate_a_delete_in_flight(home):
+    """Regression: a step must return a dict or None (the CLI's stdout string once crashed the runner)."""
+    svc, _ = services()
+    run_pack(RagLakebase(), "launch", "demo", {"min_hit_rate": 0}, services=svc)
+    dbx = svc["dbx"]
+    orig = dbx.text
+
+    def text(*a, stdin=None):
+        if a[:2] == ("apps", "delete"):
+            dbx.text = orig
+            raise PackError("databricks apps delete failed: Cannot delete app: state DELETING")
+        return "some stdout"
+    dbx.text = text
+    env = run_pack(RagLakebase(), "destroy", "demo", {}, services=svc)
+    assert env.status == "ok", env.error
