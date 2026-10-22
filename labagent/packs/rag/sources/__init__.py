@@ -28,8 +28,8 @@ class Source:
 
 def _builtin() -> Dict[str, Source]:
     from .builtin import Builtin
-    from .sec import SecFilings
-    return {s.id: s for s in (Builtin(), SecFilings())}
+    from .sec import SecFilings, SecSnapshot
+    return {s.id: s for s in (Builtin(), SecFilings(), SecSnapshot())}
 
 
 def get(source_id: str) -> Source:

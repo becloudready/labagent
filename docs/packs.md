@@ -35,7 +35,8 @@ One reusable pipeline, pluggable data sources. Each stage is idempotent, and `ev
 
 | Pack | Source | Use |
 |---|---|---|
-| `rag-sec-filings` | Real SEC 10-K filings from EDGAR, split into Items (Business, Risk Factors, MD&A) | Financial research |
+| `rag-sec-filings` | Pinned snapshot of real SEC 10-Ks ([dataset release](https://github.com/becloudready/labagent-datasets/releases/tag/sec-10k-2026.10)), split into Items. No SEC access or contact needed | Financial research |
+| `rag-sec-filings-live` | The same corpus downloaded fresh from EDGAR at launch (needs a contact for the SEC) | Newer filings, other tickers |
 | `rag-lakebase` | 25 invented passages | Smoke test only |
 
 ```bash
@@ -46,11 +47,22 @@ labagent launch rag-sec-filings --name sec --param "user_agent=Full Name name@ex
 
 What makes it more than a toy: section-aware chunking, hybrid retrieval (pgvector + full-text, rank-fused), metadata filters
 (`{"ticker": "AAPL"}`), numbered citations with the filing URL, and an evaluation set that must reach `min_hit_rate`
-(default 0.6) before the app is deployed. Filings are downloaded at launch (EDGAR rules: declared contact, under 10 requests per second,
-cached locally) and are never stored in this repo.
+(default 0.6) before the app is deployed. The snapshot is downloaded from a GitHub release and verified against a SHA-256 committed in
+`labagent/packs/rag/sources/datasets.json`; a mismatch is refused. The live pack follows EDGAR rules (declared contact, under 10 requests
+per second, cached locally). Filings are never stored in this repo.
 
 Free Edition allows one Lakebase project: pass `--param project=<existing>` to share it. Each source uses its own schema, and
 `destroy` drops only that schema (and the project only if labagent created it). Apps stop after 24 hours.
 
 Add a source by subclassing `labagent.packs.rag.sources.Source` (`chunks()` and `eval_set()`) and registering it under the
 `labagent.rag_sources` entry point.
+
+## Publishing a dataset snapshot (maintainers)
+
+```bash
+labagent dataset --chunks ~/.labagent/cache/rag-sec-filings-live/<name>.jsonl --name sec-10k --version 2026.11 --out out/
+gh release create sec-10k-2026.11 out/* --repo becloudready/labagent-datasets
+```
+
+The build is byte-for-byte reproducible. Then add the release URL and the printed `sha256` to `datasets.json` in a pull request.
+Data limitations (for example, no Item 7 for JPM and CVX) are listed in the dataset README.

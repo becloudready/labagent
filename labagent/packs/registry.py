@@ -7,8 +7,8 @@ from .base import Pack
 
 
 def builtin() -> Dict[str, Pack]:
-    from .rag.pack import RagLakebase, RagSecFilings
-    return {p.id: p for p in (RagLakebase(), RagSecFilings())}
+    from .rag.pack import RagLakebase, RagSecFilings, RagSecFilingsLive
+    return {p.id: p for p in (RagLakebase(), RagSecFilings(), RagSecFilingsLive())}
 
 
 def all_packs() -> Dict[str, Pack]:

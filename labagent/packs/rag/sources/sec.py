@@ -214,3 +214,16 @@ class SecFilings(Source):
                            {"key": "fiscal_year", "label": "Fiscal year", "kind": "select", "desc": True},
                            {"key": "section", "label": "Section", "kind": "select"}],
                 "suggestions": sugg}
+
+
+class SecSnapshot(SecFilings):
+    """The same corpus from a pinned, checksummed release. No SEC access, no contact needed, identical for everyone."""
+    id = "sec-10k-snapshot"
+    params = [Param("dataset", "sec-10k-2026.10", "Pinned snapshot (see labagent/packs/rag/sources/datasets.json)")]
+
+    def chunks(self, ctx: PackContext) -> List[Dict[str, Any]]:
+        from ....datasets import DatasetError, default_http, fetch_snapshot
+        try:
+            return fetch_snapshot(str(ctx.params["dataset"]), download=ctx.services.get("download") or default_http)
+        except DatasetError as e:
+            raise PackError(str(e)) from e

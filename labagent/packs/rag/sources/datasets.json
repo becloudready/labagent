@@ -1,0 +1,8 @@
+{
+  "sec-10k-2026.10": {
+    "url": "https://github.com/becloudready/labagent-datasets/releases/download/sec-10k-2026.10/sec-10k-2026.10.chunks.jsonl.gz",
+    "sha256": "4a327bfab2eee9c466b297ae4a7f2480c40188bc20809ecd270794fc1294775e",
+    "bytes": 523833,
+    "chunks": 1880
+  }
+}

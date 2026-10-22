@@ -290,5 +290,12 @@ class RagLakebase(RagPack):
 class RagSecFilings(RagPack):
     id = "rag-sec-filings"
     title = "Financial research RAG over SEC 10-K filings"
-    summary = "Section-aware RAG over real 10-Ks from EDGAR: hybrid search, metadata filters, citations, eval gate."
+    summary = "RAG over a pinned snapshot of real 10-Ks: hybrid search, metadata filters, citations, eval gate."
+    source_id = "sec-10k-snapshot"
+
+
+class RagSecFilingsLive(RagPack):
+    id = "rag-sec-filings-live"
+    title = "Financial research RAG, fresh from SEC EDGAR"
+    summary = "Same pipeline, but downloads the filings from EDGAR at launch (needs a contact for the SEC)."
     source_id = "sec-10k"

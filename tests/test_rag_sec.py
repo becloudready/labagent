@@ -93,9 +93,11 @@ def test_sec_requires_contact_and_limits_volume(tmp_path, monkeypatch):
         SecFilings().chunks(ctx)
 
 
-def test_sec_pack_requires_user_agent():
-    env = run_pack(RagSecFilings(), "launch", "x", {}, services={})
+def test_live_pack_requires_user_agent_but_snapshot_pack_does_not():
+    from labagent.packs.rag.pack import RagSecFilingsLive
+    env = run_pack(RagSecFilingsLive(), "launch", "x", {}, services={})
     assert env.status == "failed" and "user_agent" in env.error
+    assert "user_agent" not in [p.name for p in RagSecFilings().params]
 
 
 class Rows:

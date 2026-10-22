@@ -53,6 +53,11 @@ def main(argv=None) -> int:
     r.add_argument("--output", default="result.json", help="Result envelope path, or - for stdout")
     r.add_argument("--ruleset", help="Path to a ruleset JSON for audit/cleanup (merged into the job)")
     sub.add_parser("packs", help="List available lab packs")
+    dp = sub.add_parser("dataset", help="Package a chunk file as a versioned, checksummed snapshot (maintainers)")
+    dp.add_argument("--chunks", required=True, help="JSONL of chunks, e.g. ~/.labagent/cache/rag-sec-filings/<name>.jsonl")
+    dp.add_argument("--name", required=True)
+    dp.add_argument("--version", required=True)
+    dp.add_argument("--out", required=True, help="Output directory")
     for verb, text in (("launch", "Deploy a lab pack (idempotent: re-run to resume)"), ("destroy", "Remove what a pack created")):
         lp = sub.add_parser(verb, help=text)
         lp.add_argument("pack")
@@ -66,6 +71,15 @@ def main(argv=None) -> int:
 
     if args.cmd == "bootstrap-path":
         print(STATE_BACKEND_DIR)
+        return 0
+    if args.cmd == "dataset":
+        from .datasets import DatasetError, build_snapshot
+        try:
+            m = build_snapshot(Path(args.chunks), args.name, args.version, Path(args.out))
+        except DatasetError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        print(json.dumps({k: m[k] for k in ("file", "chunks", "bytes", "sha256")}, indent=2))
         return 0
     if args.cmd in ("packs", "launch", "destroy"):
         return _packs_main(args)
