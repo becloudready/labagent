@@ -138,6 +138,9 @@ class SecFilings(Source):
         return json.loads(self._get(ctx, url))
 
     # -- source --------------------------------------------------------------
+    def fingerprint(self, ctx: PackContext) -> str:
+        return f"{self.id}:{ctx.params['tickers']}:{ctx.params['filings']}:{ctx.params['sections']}"
+
     def chunks(self, ctx: PackContext) -> List[Dict[str, Any]]:
         ua = str(ctx.params["user_agent"] or "")
         if "@" not in ua:
@@ -220,6 +223,11 @@ class SecSnapshot(SecFilings):
     """The same corpus from a pinned, checksummed release. No SEC access, no contact needed, identical for everyone."""
     id = "sec-10k-snapshot"
     params = [Param("dataset", "sec-10k-2026.10", "Pinned snapshot (see labagent/packs/rag/sources/datasets.json)")]
+
+    def fingerprint(self, ctx: PackContext) -> str:
+        from ....datasets import registry
+        entry = registry().get(str(ctx.params["dataset"]), {})
+        return f"{self.id}:{ctx.params['dataset']}:{entry.get('sha256', '')[:12]}"
 
     def chunks(self, ctx: PackContext) -> List[Dict[str, Any]]:
         from ....datasets import DatasetError, default_http, fetch_snapshot

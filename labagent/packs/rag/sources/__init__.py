@@ -13,6 +13,11 @@ class Source:
     params: List[Param] = []
     schema: str = ""          # Postgres schema for this source's table: keeps sources side by side in one project
 
+    def fingerprint(self, ctx: PackContext) -> str:
+        """Identity of the corpus this run will produce. When it changes, the build and load stages redo their work
+        (and the table is replaced) instead of trusting a cache or a matching row count from different data."""
+        return self.id
+
     def chunks(self, ctx: PackContext) -> List[Dict[str, Any]]:
         raise NotImplementedError
 

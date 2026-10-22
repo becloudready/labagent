@@ -133,7 +133,7 @@ class RagPack(Pack):
             f.parent.mkdir(parents=True, exist_ok=True)
             f.write_text("\n".join(json.dumps(x) for x in chunks))
             f.chmod(0o600)
-            return {"chunks": len(chunks)}
+            return {"chunks": len(chunks), "corpus": self.source.fingerprint(c)}
 
         def sch(c: PackContext):
             dim = len(self._embed(c, ["dimension probe"])[0])
@@ -147,6 +147,9 @@ class RagPack(Pack):
 
         def load(c: PackContext):
             chunks = self._read_chunks(c)
+            if c.state.get("loaded_corpus") != self.source.fingerprint(c):
+                with self._conn(c) as cx:      # different data than what is in the table: replace it, do not mix
+                    cx.execute(f"TRUNCATE {schema}.chunks")
             for i in range(0, len(chunks), BATCH):
                 batch = chunks[i:i + BATCH]
                 vecs = self._embed(c, [f"{x['title']}\n{x['content']}" for x in batch])
@@ -157,8 +160,11 @@ class RagPack(Pack):
                                    "meta=EXCLUDED.meta, embedding=EXCLUDED.embedding",
                                    (x["id"], x["title"], x["content"], json.dumps(x["meta"]), _retrieval().vec_literal(v)))
                 c.log(f"  embedded {min(i + BATCH, len(chunks))}/{len(chunks)}")
+            return {"loaded_corpus": self.source.fingerprint(c)}
 
         def loaded(c: PackContext) -> bool:
+            if c.state.get("loaded_corpus") != self.source.fingerprint(c):
+                return False
             try:
                 with self._conn(c) as cx:
                     return cx.execute(f"SELECT count(*) FROM {schema}.chunks").fetchone()[0] == c.state.get("chunks")
@@ -231,7 +237,7 @@ class RagPack(Pack):
             Step("preflight", "Check login, serving endpoints and Free Edition project limit", preflight),
             Step("project", "Create the Lakebase project", mk_project, check=lambda c: d().exists("postgres", "get-project", f"projects/{project}")),
             Step("locate", "Find the compute endpoint", locate),
-            Step("build", f"Fetch, parse and chunk the '{self.source.id}' corpus", build, check=lambda c: self._chunks_file(c).exists() and "chunks" in c.state),
+            Step("build", f"Fetch, parse and chunk the '{self.source.id}' corpus", build, check=lambda c: self._chunks_file(c).exists() and c.state.get("corpus") == self.source.fingerprint(c)),
             Step("schema", "Enable pgvector and create the table", sch),
             Step("load", "Embed the chunks and load them", load, check=loaded),
             Step("index", "Build vector, full-text and metadata indexes", index),

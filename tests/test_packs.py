@@ -95,6 +95,8 @@ class FakeConn:
         rows = self.pg.rows
         if sql.startswith("INSERT INTO"):
             rows[params[0]] = params
+        if sql.startswith("TRUNCATE"):
+            rows.clear()
         res = []
         if "SELECT count" in sql:
             res = [(len(rows),)]
@@ -274,3 +276,17 @@ def test_destroy_steps_return_no_text_and_tolerate_a_delete_in_flight(home):
     dbx.text = text
     env = run_pack(RagLakebase(), "destroy", "demo", {}, services=svc)
     assert env.status == "ok", env.error
+
+
+def test_changed_corpus_rebuilds_and_replaces_the_table_but_same_corpus_is_skipped(home, monkeypatch):
+    from labagent.packs.rag.sources.builtin import Builtin
+    svc, pg = services()
+    run_pack(RagLakebase(), "launch", "demo", {"min_hit_rate": 0}, services=svc)
+    pg.rows["stale-old-row"] = ("stale-old-row", "t", "c", "{}", "[0.1]")          # a row from an earlier, different corpus
+    monkeypatch.setattr(Builtin, "fingerprint", lambda self, ctx: "builtin:v2")
+    env = run_pack(RagLakebase(), "launch", "demo", {"min_hit_rate": 0}, services=svc)
+    st = {i["step"]: i["state"] for i in env.items}
+    assert st["build"] == "done" and st["load"] == "done"                              # same row count would have looked 'loaded'
+    assert "stale-old-row" not in pg.rows and len(pg.rows) == 25
+    again = run_pack(RagLakebase(), "launch", "demo", {"min_hit_rate": 0}, services=svc)
+    assert {i["step"]: i["state"] for i in again.items}["load"] == "skipped"
