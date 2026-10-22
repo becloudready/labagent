@@ -27,14 +27,30 @@ Ship it in your own package and register it: `[project.entry-points."labagent.pa
 Rules: `check` is a read-only "already done" test; step outputs are non-secret; tokens stay in memory (`ctx.mem`).
 State is a 0600 file at `~/.labagent/packs/<pack>/<name>.json`.
 
-## rag-lakebase
+## RAG packs (Databricks Lakebase)
 
-RAG app on Databricks Lakebase (Postgres + pgvector) with a pre-loaded 25-passage knowledge base, deployed as a Databricks App.
+One reusable pipeline, pluggable data sources. Each stage is idempotent, and `evaluate` gates the deploy:
+
+`preflight, project, locate, build (fetch, parse, chunk), schema, load (embed), index, evaluate, app`
+
+| Pack | Source | Use |
+|---|---|---|
+| `rag-sec-filings` | Real SEC 10-K filings from EDGAR, split into Items (Business, Risk Factors, MD&A) | Financial research |
+| `rag-lakebase` | 25 invented passages | Smoke test only |
 
 ```bash
 pip install 'labagent[rag]'      # needs the Databricks CLI, then: databricks auth login
-labagent launch rag-lakebase --name demo
+labagent launch rag-sec-filings --name sec --param "user_agent=Full Name name@example.com" \
+    --param tickers=AAPL,JPM,PFE --param filings=2
 ```
 
-Steps: preflight (login, embedding and chat endpoints, Free Edition one-project limit), project, endpoint, pgvector schema, load, HNSW index, app.
-Free Edition limits (per the [limitations page](https://docs.databricks.com/aws/en/getting-started/free-edition-limitations)): one Lakebase project, 3 apps, and apps stop after 24 hours.
+What makes it more than a toy: section-aware chunking, hybrid retrieval (pgvector + full-text, rank-fused), metadata filters
+(`{"ticker": "AAPL"}`), numbered citations with the filing URL, and an evaluation set that must reach `min_hit_rate`
+(default 0.6) before the app is deployed. Filings are downloaded at launch (EDGAR rules: declared contact, under 10 requests per second,
+cached locally) and are never stored in this repo.
+
+Free Edition allows one Lakebase project: pass `--param project=<existing>` to share it. Each source uses its own schema, and
+`destroy` drops only that schema (and the project only if labagent created it). Apps stop after 24 hours.
+
+Add a source by subclassing `labagent.packs.rag.sources.Source` (`chunks()` and `eval_set()`) and registering it under the
+`labagent.rag_sources` entry point.

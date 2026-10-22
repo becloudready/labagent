@@ -4,13 +4,13 @@ env:
     value: "__PGHOST__"
   - name: PGDATABASE
     value: "databricks_postgres"
-  - name: PGSSLMODE
-    value: "require"
   - name: LAKEBASE_ENDPOINT
     value: "__LAKEBASE_ENDPOINT__"
   - name: EMBED_ENDPOINT
     value: "__EMBED_ENDPOINT__"
   - name: CHAT_ENDPOINT
     value: "__CHAT_ENDPOINT__"
+  - name: RAG_SCHEMA
+    value: "__RAG_SCHEMA__"
   - name: TOP_K
     value: "__TOP_K__"

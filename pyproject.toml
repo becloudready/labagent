@@ -58,7 +58,7 @@ labagent = [
   "terraform/*/*.tftpl",
   "terraform/*/.terraform.lock.hcl",
   "terraform/*/tests/*.tftest.hcl",
-  "packs/*/corpus.jsonl",
+  "packs/*/sources/*.jsonl",
   "packs/*/app/*",
 ]
 

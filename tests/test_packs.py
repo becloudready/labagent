@@ -5,7 +5,8 @@ from labagent.cli import main
 from labagent.packs import base, registry
 from labagent.packs.base import Pack, PackError, Param, Step, run_pack
 from labagent.packs.databricks.cli import Dbx, redact
-from labagent.packs.rag_lakebase.pack import RagLakebase, corpus
+from labagent.packs.rag.pack import RagLakebase, RagSecFilings
+from labagent.packs.rag.sources import get as get_source
 
 DIM = 8
 
@@ -91,11 +92,20 @@ class FakeConn:
 
     def execute(self, sql, params=None):
         self.pg.sql.append(sql.split("(")[0].strip()[:60])
-        if sql.startswith("INSERT INTO rag.chunks"):
-            self.pg.rows[params[0]] = params
+        rows = self.pg.rows
+        if sql.startswith("INSERT INTO"):
+            rows[params[0]] = params
+        res = []
         if "SELECT count" in sql:
-            return type("R", (), {"fetchone": lambda s: (len(self.pg.rows),)})()
-        return None
+            res = [(len(rows),)]
+        elif "websearch_to_tsquery" in sql:
+            res = []
+        elif "ORDER BY embedding" in sql:
+            res = [(p[0], p[1], p[2], json.loads(p[3])) for p in rows.values()]
+        out = type("R", (), {})()
+        out.fetchone = lambda: res[0]
+        out.fetchall = lambda: res
+        return out
 
 
 @pytest.fixture
@@ -111,22 +121,22 @@ def services(dbx=None, pg=None):
 
 def test_launch_end_to_end_and_idempotent(home):
     svc, pg = services()
-    env = run_pack(RagLakebase(), "launch", "demo", {}, services=svc)
+    env = run_pack(RagLakebase(), "launch", "demo", {"min_hit_rate": 0}, services=svc)
     assert env.status == "ok", env.error
-    assert [i["state"] for i in env.items] == ["done"] * 7
-    assert len(pg.rows) == len(corpus())
+    assert [i["state"] for i in env.items] == ["done"] * 9
+    assert len(pg.rows) == 25
     out = env.summary["outputs"]
-    assert out["app_url"].startswith("https://rag-demo") and out["documents"] == len(corpus())
+    assert out["app_url"].startswith("https://rag-demo") and out["chunks"] == 25 and out["eval_questions"] == 12
     # re-run resumes: project and loaded rows are detected, nothing is re-embedded
     svc2, pg2 = services(dbx=svc["dbx"], pg=pg)
-    again = run_pack(RagLakebase(), "launch", "demo", {}, services=svc2)
+    again = run_pack(RagLakebase(), "launch", "demo", {"min_hit_rate": 0}, services=svc2)
     states = {i["step"]: i["state"] for i in again.items}
-    assert again.status == "ok" and states["project"] == "skipped" and states["load"] == "skipped"
+    assert again.status == "ok" and states["project"] == "skipped" and states["load"] == "skipped" and states["build"] == "skipped"
 
 
 def test_secrets_never_in_envelope_or_state(home):
     svc, pg = services()
-    env = run_pack(RagLakebase(), "launch", "demo", {}, services=svc)
+    env = run_pack(RagLakebase(), "launch", "demo", {"min_hit_rate": 0}, services=svc)
     blob = json.dumps(env.to_dict()) + (home / "packs/rag-lakebase/demo.json").read_text()
     assert "TOKEN-SECRET" not in blob
     assert pg.tokens and set(pg.tokens) == {"TOKEN-SECRET"}
@@ -148,7 +158,7 @@ def test_missing_endpoints_gives_actionable_error(home):
 
 def test_destroy_removes_only_what_it_created(home):
     svc, _ = services()
-    run_pack(RagLakebase(), "launch", "demo", {}, services=svc)
+    run_pack(RagLakebase(), "launch", "demo", {"min_hit_rate": 0}, services=svc)
     env = run_pack(RagLakebase(), "destroy", "demo", {}, services=svc)
     assert env.status == "ok"
     assert svc["dbx"].apps == {} and svc["dbx"].projects == {}
@@ -157,16 +167,17 @@ def test_destroy_removes_only_what_it_created(home):
 
 def test_destroy_keeps_a_preexisting_project(home):
     dbx = FakeDbx(projects={"rag-demo": True})
-    svc, _ = services(dbx=dbx)
-    run_pack(RagLakebase(), "launch", "demo", {}, services=svc)
+    svc, pg = services(dbx=dbx)
+    run_pack(RagLakebase(), "launch", "demo", {"min_hit_rate": 0}, services=svc)
     run_pack(RagLakebase(), "destroy", "demo", {}, services=svc)
     assert "rag-demo" in dbx.projects
+    assert any("DROP SCHEMA" in q for q in pg.sql)   # a reused project gets only this pack's schema removed
 
 
 def test_dry_run_touches_nothing(home):
     svc, pg = services()
     env = run_pack(RagLakebase(), "launch", "demo", {}, services=svc, dry_run=True)
-    assert env.mode == "dry-run" and len(env.items) == 7 and not svc["dbx"].calls and not pg.sql
+    assert env.mode == "dry-run" and len(env.items) == 9 and not svc["dbx"].calls and not pg.sql
     assert not (home / "packs").exists()
 
 
@@ -217,9 +228,16 @@ def test_dbx_wrapper_redacts_tokens():
 
 
 def test_corpus_is_clean():
-    docs = corpus()
-    assert len(docs) >= 20 and len({d["id"] for d in docs}) == len(docs)
-    assert all("@" not in d["content"] for d in docs)
+    chunks = get_source("builtin").chunks(None)
+    assert len(chunks) >= 20 and len({c["id"] for c in chunks}) == len(chunks)
+    assert all("@" not in c["content"] for c in chunks)
+
+
+def test_eval_gate_blocks_deploy_when_retrieval_is_poor(home):
+    svc, _ = services()
+    env = run_pack(RagLakebase(), "launch", "demo", {}, services=svc)   # default min_hit_rate 0.6; the fake retrieves badly
+    assert env.status == "failed" and "not deploying" in env.error
+    assert svc["dbx"].apps == {}
 
 
 def test_dbx_api_retries_rate_limits_then_succeeds():
