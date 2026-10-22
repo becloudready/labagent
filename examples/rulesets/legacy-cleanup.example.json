@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "name": "legacy-cleanup-example",
+  "rules": [
+    { "id": "keep-admins", "action": "keep", "reason": "admin identities",
+      "match": { "type": ["iam/user"], "name": ["admin-*", "ci-*"] } },
+    { "id": "keep-state-and-logs", "action": "keep",
+      "match": { "type": ["s3/bucket"], "name": ["my-org-labagent-state-*", "my-org-audit-*"] } },
+    { "id": "old-cloudfront", "action": "delete", "reason": "idle student distributions without custom domains",
+      "match": { "type": ["cloudfront/distribution"], "attrs": { "aliases": 0 }, "older_than_days": 14 } },
+    { "id": "orphan-generated-policies", "action": "delete",
+      "match": { "type": ["iam/policy"], "name": ["AWSLambdaBasicExecutionRole-*"], "attrs": { "attachments": 0 } } },
+    { "id": "stale-key-pairs", "action": "delete", "enabled": false, "reason": "enable after reviewing the audit",
+      "match": { "type": ["ec2/key-pair"], "older_than_days": 30 } }
+  ]
+}

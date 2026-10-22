@@ -1,0 +1,33 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RegionLock",
+      "Effect": "Deny",
+      "NotAction": ["iam:*", "sts:*", "cloudfront:*", "s3:ListAllMyBuckets", "s3:GetBucketLocation"],
+      "Resource": "*",
+      "Condition": { "StringNotEquals": { "aws:RequestedRegion": "${region}" } }
+    },
+    {
+      "Sid": "DenyLargeInstances",
+      "Effect": "Deny",
+      "Action": ["ec2:RunInstances"],
+      "Resource": "arn:aws:ec2:*:*:instance/*",
+      "Condition": { "ForAnyValue:StringNotLike": { "ec2:InstanceType": ["t2.*", "t3.*", "t3a.*", "t4g.*"] } }
+    },
+    { "Sid": "Lambda", "Effect": "Allow", "Action": "lambda:*", "Resource": "*" },
+    { "Sid": "EC2", "Effect": "Allow", "Action": "ec2:*", "Resource": "*" },
+    { "Sid": "S3", "Effect": "Allow", "Action": "s3:*", "Resource": "*" },
+    { "Sid": "CloudWatch", "Effect": "Allow", "Action": ["cloudwatch:*", "logs:*"], "Resource": "*" },
+    { "Sid": "CloudFront", "Effect": "Allow", "Action": "cloudfront:*", "Resource": "*" },
+    { "Sid": "ApiGateway", "Effect": "Allow", "Action": "apigateway:*", "Resource": "*" },
+    { "Sid": "DynamoDB", "Effect": "Allow", "Action": "dynamodb:*", "Resource": "*" },
+    {
+      "Sid": "PassSharedLambdaRoleOnly",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::${account_id}:role/${lambda_role_name}",
+      "Condition": { "StringEquals": { "iam:PassedToService": "lambda.amazonaws.com" } }
+    }
+  ]
+}

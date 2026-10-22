@@ -1,0 +1,101 @@
+# Copy this into the PRIVATE runner repo as .github/workflows/lab-job.yml. Do not run it from the public repo:
+# run logs of a public repo are world-readable.
+#
+# Required in the private repo (Settings > Secrets and variables > Actions):
+#   vars.LABAGENT_SHA      reviewed commit SHA of the public labagent repo (move it deliberately, by PR)
+#   vars.LMS_URL          orchestrator base URL, e.g. https://lms.example.com
+#   vars.AWS_ROLE_READ    OIDC role for plan / inventory (read-only)
+#   vars.AWS_ROLE_WRITE   OIDC role for provision / apply / reset / offboard
+# No static AWS keys. No roster, passwords or student data anywhere in this repo.
+name: lab-job
+run-name: lab ${{ inputs.run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Orchestrator run id (UUID). The only dispatch input.
+        required: true
+        type: string
+
+permissions:
+  id-token: write      # request OIDC tokens (AWS and orchestrator)
+  contents: read
+
+# One lab job at a time: two applies must never overlap.
+concurrency:
+  group: lab-job
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      RUN_ID: ${{ inputs.run_id }}
+      LMS_URL: ${{ vars.LMS_URL }}
+    steps:
+      - name: Validate input
+        run: |
+          [[ "$RUN_ID" =~ ^[0-9a-fA-F-]{36}$ ]] || { echo "bad run id"; exit 1; }
+
+      - uses: actions/checkout@v4
+        with:
+          repository: becloudready/labagent
+          ref: ${{ vars.LABAGENT_SHA }}
+          path: labagent
+          persist-credentials: false
+
+      - uses: actions/checkout@v4
+        with:
+          path: runner
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ./labagent
+
+      - name: Fetch job from orchestrator (OIDC-authenticated, one-time)
+        id: job
+        run: |
+          set -euo pipefail
+          TOKEN=$(curl -fsS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=lab-orchestrator" | jq -r .value)
+          echo "::add-mask::$TOKEN"
+          umask 077
+          curl -fsS -H "Authorization: Bearer $TOKEN" "$LMS_URL/api/labs/runs/$RUN_ID/job" -o job.json
+          # Only non-sensitive routing fields reach the log/outputs. The roster stays in job.json.
+          CMD=$(jq -r .command job.json); MODE=$(jq -r '.mode // "apply"' job.json)
+          case "$CMD:$MODE" in
+            inventory:*|sweep:plan|provision:dry-run) echo "write=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "write=true" >> "$GITHUB_OUTPUT" ;;
+          esac
+          echo "command=$CMD mode=$MODE"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ steps.job.outputs.write == 'true' && vars.AWS_ROLE_WRITE || vars.AWS_ROLE_READ }}
+          aws-region: us-east-1
+
+      - name: Run labagent
+        run: labagent --config runner/config/lab.json run --job job.json --output result.json
+        continue-on-error: true      # the callback below must always run; exit code is re-applied at the end
+        id: labagent
+
+      - name: Post result to orchestrator
+        if: always()
+        run: |
+          set -euo pipefail
+          TOKEN=$(curl -fsS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=lab-orchestrator" | jq -r .value)
+          echo "::add-mask::$TOKEN"
+          [ -f result.json ] || echo '{"status":"failed","error":"no result produced"}' > result.json
+          curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+            --data-binary @result.json "$LMS_URL/api/labs/runs/$RUN_ID/callback" > /dev/null
+
+      - name: Wipe job data and fail the run if labagent failed
+        if: always()
+        run: |
+          rm -f job.json result.json
+          [ "${{ steps.labagent.outcome }}" = "success" ] || exit 1

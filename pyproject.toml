@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "labagent"
+dynamic = ["version"]
+description = "Provision, audit and safely tear down ephemeral AWS sandboxes for workshops, bootcamps and shared training accounts."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "BeCloudReady" }]
+keywords = ["aws", "training", "workshop", "sandbox", "cleanup", "iam", "terraform", "finops", "boto3"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Education",
+  "Intended Audience :: System Administrators",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Build Tools",
+  "Topic :: System :: Systems Administration",
+]
+dependencies = ["boto3>=1.34", "cryptography>=42"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "moto[all]>=5", "build>=1.2", "twine>=5"]
+
+[project.urls]
+Homepage = "https://github.com/becloudready/labagent"
+Source = "https://github.com/becloudready/labagent"
+Issues = "https://github.com/becloudready/labagent/issues"
+Documentation = "https://github.com/becloudready/labagent/tree/main/docs"
+
+[project.scripts]
+labagent = "labagent.cli:main"
+labctl = "labagent.cli:main"   # deprecated alias from before the rename
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+include = ["labagent*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "labagent.__version__" }
+
+[tool.setuptools.package-data]
+labagent = [
+  "terraform/*/*.tf",
+  "terraform/*/*.tftpl",
+  "terraform/*/.terraform.lock.hcl",
+  "terraform/*/tests/*.tftest.hcl",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

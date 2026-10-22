@@ -1,0 +1,6 @@
+# Anything that can delete AWS resources or handle credentials needs a maintainer review.
+# Replace with your GitHub team or usernames.
+*                @becloudready/maintainers
+/labagent/       @becloudready/maintainers
+/.github/        @becloudready/maintainers
+/scripts/        @becloudready/maintainers

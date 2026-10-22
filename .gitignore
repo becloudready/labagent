@@ -1,0 +1,83 @@
+# --- Python -------------------------------------------------------------
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# --- Secrets, keys, credentials ----------------------------------------
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+id_rsa*
+id_ed25519*
+.env
+.env.*
+!.env.example
+.aws/
+*credentials*.csv
+*.secret
+*.secrets
+
+# --- Terraform (keep .terraform.lock.hcl tracked) -----------------------
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+*.tfplan
+tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# --- labagent operational data: rosters, jobs, results, plans, real configs
+lab.json
+lab-*.json
+job*.json
+result*.json
+plan*.json
+apply*.json
+audit*.json
+cleanup*.json
+roster*.csv
+roster*.json
+students*.csv
+/rulesets/
+/runs/
+/local/
+/private/
+.labagent/
+*.bak
+
+# --- Test artifacts ------------------------------------------------------
+*.bin
+*.b64
+ct.*
+
+# --- Editors, OS, local tooling ------------------------------------------
+.DS_Store
+.vscode/
+.idea/
+*.swp
+.claude/
+
+# --- Tracked examples (must stay after the patterns above) ----------------
+!examples/**/*.json
+!docs/examples/*.json

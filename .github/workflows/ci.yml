@@ -1,0 +1,40 @@
+name: ci
+# Public repo, untrusted PRs: pull_request only (never pull_request_target), no secrets, no AWS, hosted runners only.
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e ".[dev]"
+      - run: python scripts/check_no_pii.py
+      - run: pytest -q
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.11.x"
+      - name: fmt, validate and plan-level tests (mocked provider, no AWS)
+        run: |
+          set -e
+          for d in labagent/terraform/cohort_iam labagent/terraform/state_backend; do
+            (cd "$d" && terraform fmt -check -recursive && terraform init -backend=false -input=false && terraform validate && terraform test)
+          done

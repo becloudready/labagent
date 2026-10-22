@@ -1,0 +1,17 @@
+{
+  "region": "us-east-1",
+  "regions": ["us-east-1"],
+  "workshop": "my-workshop",
+  "name_prefix": "labs",
+  "student_domain": "example.com",
+  "allowed_account_ids": ["123456789012"],
+  "password_reset_required": true,
+  "backend": {
+    "bucket": "my-org-labagent-state",
+    "region": "us-east-1",
+    "kms_key_id": "alias/my-org-labagent-state",
+    "use_lockfile": true
+  },
+  "plan_max_age_s": 21600,
+  "apply_time_budget_s": 1500
+}

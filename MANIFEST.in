@@ -1,0 +1,10 @@
+include LICENSE README.md SECURITY.md CONTRIBUTING.md
+recursive-include docs *.md *.yml *.json
+recursive-include examples *.json
+recursive-include scripts *.py
+recursive-include tests *.py
+recursive-include labagent/terraform *.tf *.tftpl *.hcl
+# never ship operational data or state
+global-exclude *.tfstate *.tfstate.* *.tfvars *.pem job*.json result*.json plan*.json lab.json *.pyc
+prune .venv
+prune build

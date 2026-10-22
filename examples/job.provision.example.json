@@ -1,0 +1,11 @@
+{
+  "run_id": "00000000-0000-0000-0000-000000000001",
+  "command": "provision",
+  "mode": "apply",
+  "cohort": { "id": "demo-cohort-1", "created_date": "01-Jan-2030" },
+  "learners": [
+    { "learner_id": "1", "username": "ada-example@example.com" },
+    { "learner_id": "2", "username": "alan-example@example.com" }
+  ],
+  "secrets_pubkey_pem": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n"
+}

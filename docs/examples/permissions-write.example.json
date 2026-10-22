@@ -1,0 +1,41 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Discovery",
+      "Effect": "Allow",
+      "Action": ["sts:GetCallerIdentity", "tag:GetResources", "ec2:Describe*", "cloudfront:GetDistribution", "cloudfront:GetDistributionConfig"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DeleteLabResources",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:DeleteFunction",
+        "s3:ListBucket", "s3:ListBucketVersions", "s3:DeleteObject", "s3:DeleteObjectVersion", "s3:DeleteBucket",
+        "dynamodb:DeleteTable",
+        "logs:DeleteLogGroup",
+        "ec2:TerminateInstances", "ec2:ReleaseAddress", "ec2:DisassociateAddress", "ec2:DeleteSecurityGroup", "ec2:DeleteVolume",
+        "apigateway:DELETE",
+        "cloudfront:UpdateDistribution", "cloudfront:DeleteDistribution"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CohortIamLifecycle",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateUser", "iam:DeleteUser", "iam:GetUser", "iam:TagUser", "iam:ListUsers",
+        "iam:CreateLoginProfile", "iam:UpdateLoginProfile", "iam:DeleteLoginProfile",
+        "iam:ListAccessKeys", "iam:DeleteAccessKey", "iam:ListMFADevices", "iam:DeactivateMFADevice", "iam:DeleteVirtualMFADevice",
+        "iam:ListSigningCertificates", "iam:DeleteSigningCertificate", "iam:ListSSHPublicKeys", "iam:DeleteSSHPublicKey",
+        "iam:ListUserPolicies", "iam:DeleteUserPolicy", "iam:ListAttachedUserPolicies", "iam:DetachUserPolicy",
+        "iam:ListGroupsForUser", "iam:AddUserToGroup", "iam:RemoveUserFromGroup",
+        "iam:GetPolicy", "iam:GetPolicyVersion", "iam:CreatePolicy", "iam:CreatePolicyVersion", "iam:DeletePolicyVersion", "iam:ListPolicyVersions",
+        "iam:CreateGroup", "iam:AttachGroupPolicy",
+        "iam:CreateRole", "iam:AttachRolePolicy", "iam:PutRolePolicy", "iam:TagRole", "iam:TagPolicy"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
