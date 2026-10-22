@@ -221,6 +221,7 @@ class RagPack(Pack):
                              "RAG_SCHEMA": schema, "TOP_K": str(int(c.params["top_k"]))}.items():
                     y = y.replace(f"__{k}__", v)
                 (bundle / "app.yaml").write_text(y)
+                (bundle / "ui.json").write_text(json.dumps(self.source.ui([x["meta"] for x in self._read_chunks(c)]), indent=1))
                 path = f"/Users/{c.state['user']}/labagent/{name}"
                 d().text("workspace", "import-dir", str(bundle), path, "--overwrite")
             d().text("apps", "deploy", name, "--source-code-path", f"/Workspace{path}")

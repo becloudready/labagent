@@ -1,12 +1,15 @@
 """RAG service: hybrid retrieval over Lakebase, answers only from retrieved passages, with numbered citations."""
+import json
 import os
+import re
 import time
+from pathlib import Path
 from typing import Dict, Optional
 
 import psycopg
 from databricks.sdk import WorkspaceClient
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from retrieval import search
@@ -14,7 +17,11 @@ from retrieval import search
 w = WorkspaceClient()
 app = FastAPI(title="labagent RAG")
 SCHEMA = os.environ["RAG_SCHEMA"]
+HERE = Path(__file__).parent
 _tok = {"v": None, "exp": 0.0}
+_meta = {"v": None, "exp": 0.0}
+KEY = re.compile(r"^[a-z_][a-z0-9_]*$")
+SHOWN_META = ("ticker", "company", "fiscal_year", "section", "item", "form", "url", "source")
 
 SYSTEM = ("You answer questions using only the numbered context passages. Cite the passages you used like [1] or [2]. "
           "If the context does not contain the answer, say you do not know. Do not use outside knowledge.")
@@ -41,17 +48,40 @@ class Ask(BaseModel):
     filters: Optional[Dict[str, str]] = None    # e.g. {"ticker": "AAPL", "fiscal_year": "2024"}
 
 
-@app.get("/", response_class=HTMLResponse)
+def _ui() -> dict:
+    f = HERE / "ui.json"
+    return json.loads(f.read_text()) if f.exists() else {}
+
+
+@app.get("/")
 def index():
-    return """<!doctype html><meta name=viewport content="width=device-width,initial-scale=1">
-<title>RAG on Lakebase</title><body style="font:16px system-ui;max-width:780px;margin:2rem auto;padding:0 1rem">
-<h1>Ask the documents</h1><form id=f><input id=q style="width:70%;padding:.5rem" placeholder="Ask a question">
-<input id=t style="width:12%;padding:.5rem" placeholder="ticker"><button>Ask</button></form>
-<pre id=a style="white-space:pre-wrap"></pre><ol id=s></ol>
-<script>f.onsubmit=async e=>{e.preventDefault();a.textContent='...';s.innerHTML='';
-const fl=t.value?{ticker:t.value.toUpperCase()}:null;
-const r=await(await fetch('ask',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({question:q.value,filters:fl})})).json();
-a.textContent=r.answer;s.innerHTML=r.sources.map(x=>`<li>${x.title} ${x.url?`<a href="${x.url}">source</a>`:''}</li>`).join('')}</script>"""
+    return FileResponse(HERE / "static" / "index.html")
+
+
+@app.get("/ui.json")
+def ui():
+    return JSONResponse(_ui())
+
+
+@app.get("/meta")
+def meta():
+    """Dataset size and the values available for each filter, so the menu always matches what is loaded."""
+    if _meta["v"] and time.time() < _meta["exp"]:
+        return _meta["v"]
+    facets = {}
+    with _db() as c:
+        total = c.execute(f"select count(*) from {SCHEMA}.chunks").fetchone()[0]
+        for f in _ui().get("facets", []):
+            key, label_key = f["key"], f.get("label_key", f["key"])
+            if not (KEY.match(key) and KEY.match(label_key)):
+                continue
+            rows = c.execute(f"select meta->>%s, max(meta->>%s) from {SCHEMA}.chunks where meta ? %s group by 1 order by 1",
+                             (key, label_key, key)).fetchall()
+            vals = [{"value": v, "label": (f"{v}: {lab}" if lab and lab != v else v)} for v, lab in rows if v]
+            facets[key] = sorted(vals, key=lambda x: x["value"], reverse=bool(f.get("desc")))
+        docs = c.execute(f"select count(distinct meta->>'url') from {SCHEMA}.chunks where meta ? 'url'").fetchone()[0]
+    _meta.update(v={"chunks": total, "documents": docs or None, "facets": facets}, exp=time.time() + 60)
+    return _meta["v"]
 
 
 @app.get("/health")
@@ -71,5 +101,6 @@ def ask(a: Ask):
     out = _invoke(os.environ["CHAT_ENDPOINT"], {"messages": [{"role": "system", "content": SYSTEM},
                   {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {a.question}"}], "max_tokens": 500})
     return {"answer": out["choices"][0]["message"]["content"],
-            "sources": [{"n": i, "title": h["title"], "url": h["meta"].get("url"), "score": h["score"]}
+            "sources": [{"n": i, "title": h["title"], "url": h["meta"].get("url"), "score": h["score"],
+                         "snippet": h["content"][:600], "meta": {k: v for k, v in h["meta"].items() if k in SHOWN_META}}
                         for i, h in enumerate(hits, 1)]}

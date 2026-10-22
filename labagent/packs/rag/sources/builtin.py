@@ -31,3 +31,11 @@ class Builtin(Source):
 
     def eval_set(self) -> List[Dict[str, Any]]:
         return [{"question": q, "expect": {"source": s}} for q, s in EVAL]
+
+    def ui(self, metas):
+        cats = sorted({m["source"] for m in metas})
+        return {"title": "Retail Support Assistant", "tagline": "Demo knowledge base (invented policies)",
+                "heading": "Ask the support knowledge base", "sub": "Fictional retailer policies, for testing the pipeline.",
+                "disclaimer": "Demo data: policies are invented.",
+                "facets": [{"key": "source", "label": "Topic", "kind": "chips"}],
+                "suggestions": [{"question": q, "label": s.title(), "filters": {"source": s}} for q, s in EVAL if s in cats]}

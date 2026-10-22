@@ -16,6 +16,11 @@ class Source:
     def chunks(self, ctx: PackContext) -> List[Dict[str, Any]]:
         raise NotImplementedError
 
+    def ui(self, metas: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Branding, filter menu and suggested questions for the web app. `metas` are the loaded chunks' metadata,
+        so suggestions only mention what is actually in the corpus."""
+        return {"title": "Document Q&A", "tagline": "Answers cite the passages they come from", "facets": [], "suggestions": []}
+
     def eval_set(self) -> List[Dict[str, Any]]:
         """[{question, expect: {meta_key: value}}]: a retrieved chunk is a hit when its meta contains `expect`."""
         return []

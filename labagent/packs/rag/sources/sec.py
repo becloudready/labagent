@@ -193,3 +193,24 @@ class SecFilings(Source):
             {"question": "How did Walmart's comparable sales and operating income perform?", "expect": {"ticker": "WMT", "item": "7"}},
             {"question": "What competition and supply risks does Walmart face?", "expect": {"ticker": "WMT", "item": "1A"}},
         ]
+
+    def ui(self, metas):
+        companies = {}
+        for m in metas:
+            companies.setdefault(m["ticker"], m["company"])
+        templates = [("Risk Factors", "What are the main risks {c} discloses?", "1A"),
+                     ("Results", "How did {c}'s results and operating performance change this year?", "7"),
+                     ("Business", "How does {c} describe its business and main products or services?", "1")]
+        sugg = [{"label": "Across companies", "question": "Which of these companies mention tariffs or trade restrictions as a risk?"},
+                {"label": "Across companies", "question": "How do these companies describe the impact of inflation on their results?"}]
+        tick = list(companies)
+        # rotate templates across companies so the first cards mix topics and companies
+        order = [(t, templates[(i + j) % len(templates)]) for j in range(len(templates)) for i, t in enumerate(tick)]
+        sugg += [{"label": f"{tpl[0]} \u00b7 {t}", "question": tpl[1].format(c=companies[t]), "filters": {"ticker": t}} for t, tpl in order]
+        return {"title": "Filings Research Assistant", "tagline": "Questions answered from SEC 10-K filings, with citations",
+                "heading": "Research the filings", "sub": "Pick a suggestion or ask your own. Narrow the scope on the left.",
+                "disclaimer": "Informational only, not investment advice. Source: SEC EDGAR.",
+                "facets": [{"key": "ticker", "label": "Company", "kind": "chips", "label_key": "company"},
+                           {"key": "fiscal_year", "label": "Fiscal year", "kind": "select", "desc": True},
+                           {"key": "section", "label": "Section", "kind": "select"}],
+                "suggestions": sugg}
