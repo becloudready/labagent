@@ -19,7 +19,7 @@ from ..databricks import pg as pgmod
 HERE = Path(__file__).parent
 EMBED_RE = re.compile(r"gte|bge|embed", re.I)
 CHAT_RE = re.compile(r"llama|gpt|claude|gemma|qwen|instruct|chat", re.I)
-BATCH = 16
+BATCH = 5
 
 
 def corpus() -> List[Dict[str, Any]]:
@@ -147,14 +147,14 @@ class RagLakebase(Pack):
             res = [{"name": "embedder", "serving_endpoint": {"name": c.state["embedding_endpoint"], "permission": "CAN_QUERY"}},
                    {"name": "chat", "serving_endpoint": {"name": c.state["chat_endpoint"], "permission": "CAN_QUERY"}}]
             if not d().exists("apps", "get", name):
-                d().json("apps", "create", name, body={"name": name, "description": "labagent RAG on Lakebase", "resources": res})
+                d().json("apps", "create", body={"name": name, "description": "labagent RAG on Lakebase", "resources": res})
             info = d().json("apps", "get", name)
             sp = pgmod.find(info, "service_principal_client_id")
             if not sp:
                 raise PackError("app service principal not reported yet; re-run")
             branch = c.state["lakebase_endpoint"].rsplit("/endpoints/", 1)[0]
             try:
-                d().json("postgres", "create-role", branch, body={"spec": {"postgres_role": sp, "identity_type": "SERVICE_PRINCIPAL",
+                d().json("postgres", "create-role", branch, "--role-id", re.sub(r"[^a-z0-9-]", "-", name.lower()), body={"spec": {"postgres_role": sp, "identity_type": "SERVICE_PRINCIPAL",
                                                                            "auth_method": "LAKEBASE_OAUTH_V1"}})
             except PackError as e:
                 if "already exists" not in str(e).lower():
@@ -173,7 +173,7 @@ class RagLakebase(Pack):
                 (src / "app.yaml").write_text(y)
                 path = f"/Users/{c.state['user']}/labagent/{name}"
                 d().text("workspace", "import-dir", str(src), path, "--overwrite")
-            d().text("apps", "deploy", name, "--source-code-path", path)
+            d().text("apps", "deploy", name, "--source-code-path", f"/Workspace{path}")
             return {"app_name": name, "app_path": path, "app_url": pgmod.find(d().json("apps", "get", name), "url")}
 
         return [

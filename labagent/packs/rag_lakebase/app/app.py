@@ -15,8 +15,8 @@ _tok = {"v": None, "exp": 0.0}
 
 def _token() -> str:
     if time.time() > _tok["exp"]:   # tokens last 1 hour: refresh after 50 minutes
-        cred = w.postgres.generate_database_credential(endpoint=os.environ["LAKEBASE_ENDPOINT"])
-        _tok.update(v=cred.token, exp=time.time() + 3000)
+        cred = w.api_client.do("POST", "/api/2.0/postgres/credentials", body={"endpoint": os.environ["LAKEBASE_ENDPOINT"]})
+        _tok.update(v=cred["token"], exp=time.time() + 3000)
     return _tok["v"]
 
 

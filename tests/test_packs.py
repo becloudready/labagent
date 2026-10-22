@@ -41,7 +41,9 @@ class FakeDbx:
         if a[:2] == ("postgres", "create-role"):
             return {}
         if a[:2] == ("apps", "create"):
-            self.apps[a[2]] = {"url": f"https://{a[2]}.example.invalid", "service_principal_client_id": "sp-1234"}
+            assert len(a) == 2, "apps create takes the name from --json, not a positional"
+            n = body["name"]
+            self.apps[n] = {"url": f"https://{n}.example.invalid", "service_principal_client_id": "sp-1234"}
             return {}
         if a[:2] == ("apps", "get"):
             return self.apps[a[2]]
@@ -218,3 +220,22 @@ def test_corpus_is_clean():
     docs = corpus()
     assert len(docs) >= 20 and len({d["id"] for d in docs}) == len(docs)
     assert all("@" not in d["content"] for d in docs)
+
+
+def test_dbx_api_retries_rate_limits_then_succeeds():
+    calls, naps = [], []
+
+    def run(cmd, **kw):
+        calls.append(cmd)
+        if len(calls) < 3:
+            return type("P", (), {"returncode": 1, "stdout": "", "stderr": "REQUEST_LIMIT_EXCEEDED: slow down"})()
+        return type("P", (), {"returncode": 0, "stdout": '{"ok": true}', "stderr": ""})()
+    d = Dbx(run=run, binary="/bin/databricks", sleep=naps.append)
+    assert d.api("post", "/x", {"a": 1}) == {"ok": True} and naps == [2, 4]
+
+
+def test_dbx_api_does_not_retry_other_errors():
+    def run(cmd, **kw):
+        return type("P", (), {"returncode": 1, "stdout": "", "stderr": "PERMISSION_DENIED"})()
+    with pytest.raises(PackError):
+        Dbx(run=run, binary="/bin/databricks", sleep=lambda s: pytest.fail("slept")).api("post", "/x", {})
