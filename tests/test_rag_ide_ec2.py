@@ -206,3 +206,13 @@ def test_ami_lookup_falls_back_to_describe_images_when_ssm_is_denied(aws):
             return {"Images": [{"ImageId": "ami-old", "CreationDate": "2026-01-01T00:00:00Z"}, {"ImageId": "ami-new", "CreationDate": "2026-09-01T00:00:00Z"}]}
     gw.ctx.client = lambda svc, region=None: Denied() if svc == "ssm" else Ec2Stub()
     assert gw.ami() == "ami-new" and calls["Owners"] == [e.CANONICAL_OWNER]
+
+
+def test_dockerfile_hands_the_workspace_to_the_user_before_switching_to_it():
+    """Regression: the classic builder makes WORKDIR root-owned even after USER, which broke the first real EC2 boot."""
+    from pathlib import Path
+    lines = (Path(__file__).parent.parent / "Dockerfile.lab").read_text().splitlines()
+    chown = next(i for i, l in enumerate(lines) if "chown coder:coder /home/coder/lab" in l)
+    user = next(i for i, l in enumerate(lines) if l.strip() == "USER coder")
+    workdir = next(i for i, l in enumerate(lines) if l.startswith("WORKDIR /home/coder/lab"))
+    assert chown < user < workdir
