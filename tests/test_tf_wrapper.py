@@ -116,11 +116,13 @@ def test_redact():
     assert "@" not in redact("failed for a@example.com and c.d@example.org")
 
 
-def test_legacy_config_keys_are_ignored(tmp_path):
+def test_unknown_config_keys_are_rejected_not_ignored(tmp_path):
+    import pytest
     from labagent.config import load_config
     p = tmp_path / "c.json"
-    p.write_text(json.dumps({"group_name": "old", "policy_name": "old", "name_prefix": "x"}))
-    assert load_config(str(p)).name_prefix == "x"
+    p.write_text(json.dumps({"group_name": "old", "name_prefix": "x"}))
+    with pytest.raises(ValueError, match="group_name"):
+        load_config(str(p))
 
 
 def test_module_never_manages_passwords():
@@ -130,13 +132,13 @@ def test_module_never_manages_passwords():
     assert not re.search(r'resource\s+"aws_iam_user_login_profile"', text)
 
 
-def test_legacy_labctl_env_vars_still_work(monkeypatch):
+def test_only_labagent_env_vars_are_read(monkeypatch):
     from labagent.config import getenv
     monkeypatch.delenv("LABAGENT_TF_BIN", raising=False)
-    monkeypatch.setenv("LABCTL_TF_BIN", "/legacy/terraform")
-    assert getenv("TF_BIN") == "/legacy/terraform"
+    monkeypatch.setenv("LABCTL_TF_BIN", "/old/terraform")
+    assert getenv("TF_BIN") is None                                  # the pre-rename prefix is no longer honoured
     monkeypatch.setenv("LABAGENT_TF_BIN", "/new/terraform")
-    assert getenv("TF_BIN") == "/new/terraform"                      # new name wins
+    assert getenv("TF_BIN") == "/new/terraform"
 
 
 def test_packaged_terraform_modules_are_present():

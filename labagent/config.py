@@ -12,10 +12,8 @@ STATE_BACKEND_DIR = Path(__file__).parent / "terraform" / "state_backend"
 
 
 def getenv(name: str) -> Optional[str]:
-    """LABAGENT_<name>, falling back to the legacy LABCTL_<name> used before the rename."""
-    return os.environ.get(f"LABAGENT_{name}") or os.environ.get(f"LABCTL_{name}") or None
-# Keys from the earlier boto3-only design: accepted and ignored so old config files keep loading.
-LEGACY_KEYS = {"group_name", "policy_name", "lambda_role_name", "policy_file"}
+    """The value of LABAGENT_<name>, or None when unset or empty."""
+    return os.environ.get(f"LABAGENT_{name}") or None
 
 
 @dataclass
@@ -67,8 +65,6 @@ def load_config(path: Optional[str] = None) -> Config:
     if path:
         raw = json.loads(Path(path).read_text())
     known = {f.name for f in fields(Config)}
-    for k in LEGACY_KEYS & set(raw):
-        raw.pop(k)
     unknown = set(raw) - known
     if unknown:
         raise ValueError(f"unknown config keys: {sorted(unknown)}")

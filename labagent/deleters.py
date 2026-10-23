@@ -274,10 +274,6 @@ def cleanup_types():
     return list(REGISTRY.keys())
 
 
-def order_of(r: Resource) -> int:
-    return REGISTRY.get(r.key, (None, 999))[1]
-
-
 # ---- additional types found in real accounts ---------------------------------------------------
 
 @guarded

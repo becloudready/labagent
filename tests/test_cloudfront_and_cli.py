@@ -108,7 +108,7 @@ def test_cloudfront_dangling_s3_origin_is_neutralized_so_it_can_be_disabled(cfg)
     assert origins["c"]["DomainName"] == "api.example.org"                  # non-S3 untouched
 
 
-def test_cli_bootstrap_path_and_legacy_alias(capsys):
+def test_cli_bootstrap_path(capsys):
     from labagent import cli
     assert cli.main(["bootstrap-path"]) == 0
     out = capsys.readouterr().out.strip()
