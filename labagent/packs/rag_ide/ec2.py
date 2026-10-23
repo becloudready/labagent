@@ -20,7 +20,7 @@ from ..base import PackError
 from .modal_gateway import slug
 
 REPO = "https://github.com/becloudready/labagent"
-PINNED_REF = "ce696d573cc2837d9594badc6e20c8090a8ceb6f"    
+PINNED_REF = "737a284413ae94bb69cd425935df0f31e3919a28"    
 CANONICAL_OWNER = "099720109477"
 AMI_NAME = "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"
 SSM_UBUNTU = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
