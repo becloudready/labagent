@@ -9,7 +9,8 @@ from .base import Pack
 def builtin() -> Dict[str, Pack]:
     from .rag.pack import RagLakebase, RagSecFilings, RagSecFilingsLive
     from .db_agent.pack import DbAgent
-    return {p.id: p for p in (RagLakebase(), RagSecFilings(), RagSecFilingsLive(), DbAgent())}
+    from .rag_ide.pack import RagIde
+    return {p.id: p for p in (RagLakebase(), RagSecFilings(), RagSecFilingsLive(), DbAgent(), RagIde())}
 
 
 def all_packs() -> Dict[str, Pack]:
