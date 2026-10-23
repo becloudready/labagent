@@ -13,9 +13,11 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from ..base import Pack, PackContext, PackError, Param, Step, state_dir
+from . import ec2 as ec2mod
 from .modal_gateway import ModalGateway, app_name, slug
 
 MAX_LEARNERS = 60
+WAIT_S = 1800          # image build on the box plus certificate issuance
 
 
 def learner_names(spec: Any) -> List[str]:
@@ -57,6 +59,20 @@ class _LazyModal:
         return getattr(self._gw, name)
 
 
+class _LazyEc2:
+    """Same idea as _LazyModal; region and profile are applied in preflight, before the first AWS call."""
+
+    def __init__(self) -> None:
+        self._gw = None
+        self.region = None
+        self.profile = None
+
+    def __getattr__(self, name: str):
+        if self._gw is None:
+            self._gw = ec2mod.Ec2Gateway(region=self.region, profile=self.profile)
+        return getattr(self._gw, name)
+
+
 class RagIde(Pack):
     id = "rag-ide"
     title = "Browser VS Code lab per learner (Modal)"
@@ -64,7 +80,14 @@ class RagIde(Pack):
     aliases = ("ide", "web-ide", "rag-web-ide")
     default_name = "cohort"
     params = [
+        Param("platform", "modal", "modal (one serverless sandbox per learner) | ec2 (one shared instance per cohort, much cheaper at scale)"),
         Param("learners", "1", "Count (5) or comma list of names (ana,ben)"),
+        Param("instance_type", "auto", "ec2: instance type, or auto"),
+        Param("spot", False, "ec2: use a spot instance (cheaper, can be reclaimed)"),
+        Param("region", None, "ec2: AWS region (default from labagent config)"),
+        Param("profile", None, "ec2: AWS profile"),
+        Param("tls", "letsencrypt", "ec2: letsencrypt | internal (self-signed, browser warning)"),
+        Param("ref", ec2mod.PINNED_REF, "ec2: labagent commit (40-hex SHA) the lab image is built from"),
         Param("hours", 4, "Hard cap per session, 1 to 24"),
         Param("idle_minutes", 15, "Shut a session down after this long with no browser connected"),
         Param("cpu", 2.0, "CPU cores per learner"),
@@ -77,10 +100,14 @@ class RagIde(Pack):
     ]
 
     def services(self, profile):
-        return {"modal": _LazyModal()}
+        return {"modal": _LazyModal(), "ec2": _LazyEc2()}
 
     def _validate(self, ctx: PackContext) -> None:
         p = ctx.params
+        if p["platform"] not in ("modal", "ec2"):
+            raise PackError("platform must be modal or ec2")
+        if p["tls"] not in ("letsencrypt", "internal"):
+            raise PackError("tls must be letsencrypt or internal")
         names = learner_names(p["learners"])
         if not 1 <= int(p["hours"]) <= 24:
             raise PackError("hours must be between 1 and 24")
@@ -153,7 +180,85 @@ class RagIde(Pack):
         ctx.log(f"\n  Passwords are in {path} (0600, one row per learner)" + ("" if show else f"\n  View them: cat {path}"))
         return {"credentials_file": str(path)}
 
+    # ---- EC2 platform -------------------------------------------------------------------------------------------------------
+    def _ec2_preflight(self, ctx: PackContext):
+        self._validate(ctx)
+        gw = ctx.services["ec2"]
+        gw.region, gw.profile = ctx.params["region"], ctx.params["profile"]
+        where = gw.check_auth()
+        itype = ec2mod.pick_instance_type(len(ctx.mem["names"]), int(ctx.params["memory_mib"]), ctx.params["instance_type"])
+        if not re.fullmatch(r"[0-9a-f]{40}", str(ctx.params["ref"])):
+            raise PackError("ref must be a full 40-character commit SHA")
+        ctx.log(f"  AWS: {where} | instance type: {itype}{' (spot)' if ctx.params['spot'] else ''} | learners: {len(ctx.mem['names'])}")
+        return {"aws": where, "instance_type": itype}
+
+    def _ec2_network(self, ctx: PackContext):
+        return {"security_group": ctx.services["ec2"].security_group(ctx.name)}
+
+    def _ec2_instance(self, ctx: PackContext):
+        gw, p = ctx.services["ec2"], ctx.params
+        names = ctx.mem.get("names") or learner_names(p["learners"])
+        iid = ctx.state.get("instance_id")
+        if iid and gw.alive(iid):
+            ctx.log(f"  instance {iid} already running")
+            ctx.mem["passwords"] = {}
+            return {}
+        pw = {n: secrets.token_urlsafe(12) for n in names}
+        env = {"GROQ_API_KEY": os.environ["GROQ_API_KEY"], "GROQ_MODEL": p["groq_model"], "LLM_PROVIDER": "groq"} if p["llm"] == "groq-shared" else {}
+        ud = ec2mod.build_user_data(pw, ref=p["ref"], hours=int(p["hours"]), idle_minutes=int(p["idle_minutes"]), cpu=float(p["cpu"]),
+                                    memory_mib=int(p["memory_mib"]), tls=p["tls"], env=env)
+        iid = gw.run(ctx.name, ctx.state["security_group"], ud, ctx.state["instance_type"], bool(p["spot"]))
+        ctx.log(f"  launched {iid}, waiting for a public address ...")
+        ip = gw.public_ip(iid)
+        ctx.mem["passwords"] = pw
+        host = ec2mod.sslip_host(ip)
+        return {"instance_id": iid, "host": host,
+                "learners": {n: {"url": ec2mod.learner_url(host, n)} for n in names}}
+
+    def _ec2_wait(self, ctx: PackContext):
+        gw = ctx.services["ec2"]
+        host, names = ctx.state["host"], sorted(ctx.state["learners"])
+        ctx.log("  the box is building the lab image (about 8 to 12 minutes the first time) ...")
+        for _ in range(WAIT_S // 15):
+            if all(gw.ready(host, n) for n in names):
+                ctx.log("  all learner IDEs answer over HTTPS")
+                return {"ready": True}
+            gw.pause(15)
+        raise PackError("learner IDEs were not reachable in time. Check the instance console log (/var/log/labagent-boot.log). Re-running resumes.")
+
+    def _ec2_steps(self) -> List[Step]:
+        return [
+            Step("preflight", "Check AWS credentials, account allow list and settings", self._ec2_preflight),
+            Step("network", "Create the HTTP/HTTPS-only security group", self._ec2_network),
+            Step("instance", "Launch the shared instance with one container per learner", self._ec2_instance),
+            Step("wait", "Wait for every learner's IDE over HTTPS", self._ec2_wait),
+            Step("credentials", "Write the credentials file", self._credentials),
+        ]
+
+    def _ec2_destroy(self) -> List[Step]:
+        def preflight(c):
+            gw = c.services["ec2"]
+            gw.region, gw.profile = c.params["region"], c.params["profile"]
+            return {"aws": gw.check_auth()}
+
+        def terminate(c):
+            gw = c.services["ec2"]
+            ids = sorted(({c.state["instance_id"]} if c.state.get("instance_id") else set()) | set(gw.find(c.name)))
+            gw.terminate(ids)
+            return {"instance_id": None, "host": None, "learners": {}, "terminated": len(ids)}
+
+        def sg(c):
+            c.services["ec2"].delete_security_group(c.name)
+            return {"security_group": None}
+
+        return [Step("preflight", "Check AWS credentials and account allow list", preflight),
+                Step("terminate", "Terminate the cohort instance (also finds orphans by tag)", terminate),
+                Step("network", "Delete the security group", sg),
+                Step("credentials", "Remove the credentials file", self._forget)]
+
     def deploy_steps(self, ctx: PackContext) -> List[Step]:
+        if ctx.params["platform"] == "ec2":
+            return self._ec2_steps()
         return [
             Step("preflight", "Check the Modal login and settings", self._preflight),
             Step("image", "Build the lab image (first time: several minutes)", self._build),
@@ -181,6 +286,8 @@ class RagIde(Pack):
         return {"credentials_file": None}
 
     def destroy_steps(self, ctx: PackContext) -> List[Step]:
+        if ctx.params["platform"] == "ec2":
+            return self._ec2_destroy()
         # remember volume names before the learner records are cleared
         ctx.state["volumes"] = sorted({i["volume"] for i in ctx.state.get("learners", {}).values() if i.get("volume")} | set(ctx.state.get("volumes", [])))
         return [
