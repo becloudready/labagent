@@ -46,7 +46,7 @@ def _packs_main(args) -> int:
     return env.exit_code
 
 
-KNOWN = {"run", "packs", "dataset", "launch", "destroy", "bootstrap-path", "commands"}
+KNOWN = {"run", "packs", "rag", "dataset", "launch", "destroy", "bootstrap-path", "commands"}
 
 
 def _nl_main(argv) -> int:
@@ -102,6 +102,8 @@ def main(argv=None) -> int:
     r.add_argument("--output", default="result.json", help="Result envelope path, or - for stdout")
     r.add_argument("--ruleset", help="Path to a ruleset JSON for audit/cleanup (merged into the job)")
     sub.add_parser("packs", help="List available lab packs")
+    from .ai.rag import cli as rag_cli
+    rag_cli.add_parser(sub)
     dp = sub.add_parser("dataset", help="Package a chunk file as a versioned, checksummed snapshot (maintainers)")
     dp.add_argument("--chunks", required=True, help="JSONL of chunks, e.g. ~/.labagent/cache/rag-sec-filings/<name>.jsonl")
     dp.add_argument("--name", required=True)
@@ -130,6 +132,8 @@ def main(argv=None) -> int:
             return 2
         print(json.dumps({k: m[k] for k in ("file", "chunks", "bytes", "sha256")}, indent=2))
         return 0
+    if args.cmd == "rag":
+        return rag_cli.run(args)
     if args.cmd in ("packs", "launch", "destroy"):
         return _packs_main(args)
     if args.cmd == "commands":

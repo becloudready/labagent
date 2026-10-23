@@ -1,0 +1,16 @@
+{
+  "name": "labagent RAG lab",
+  "build": { "dockerfile": "../../Dockerfile.lab", "context": "../.." },
+  "remoteUser": "coder",
+  "workspaceFolder": "/home/coder/lab",
+  "forwardPorts": [8501],
+  "portsAttributes": { "8501": { "label": "RAG playground", "onAutoForward": "openBrowser" } },
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "ms-toolsai.jupyter"],
+      "settings": { "python.defaultInterpreterPath": "/usr/local/bin/python" }
+    }
+  },
+  "postCreateCommand": "test -f .env || labagent rag init --dir .",
+  "containerEnv": { "HF_HUB_OFFLINE": "1" }
+}

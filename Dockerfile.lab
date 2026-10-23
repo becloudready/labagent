@@ -1,0 +1,47 @@
+# Web IDE + RAG lab image: VS Code in the browser (code-server) with Jupyter and every RAG dependency pre-installed.
+# Build from the repo root:  docker build -f Dockerfile.lab -t labagent-rag-lab:local .
+# Run:                      labagent rag ide     (or: docker run -p 127.0.0.1:8080:8080 -e PASSWORD=... labagent-rag-lab:local)
+FROM python:3.11-bookworm
+
+ARG TARGETARCH
+ARG CODE_SERVER_VERSION=4.141.0
+ARG CODE_SERVER_SHA256_AMD64=f384beb4f3ba207e0bca27d0dbd36dd825d5aa909d78c6d4baa8703eaf6b77ba
+ARG CODE_SERVER_SHA256_ARM64=0bca33a9b01180ad88f0b8969a8e34ae1c76417df471697e7cd65c20ef5dd60d
+
+RUN apt-get update && apt-get install -y --no-install-recommends curl git sudo ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# code-server pinned by version and SHA-256: the build fails if the download changes.
+RUN set -eux; \
+    case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
+      amd64) sha="$CODE_SERVER_SHA256_AMD64"; arch=amd64 ;; \
+      arm64) sha="$CODE_SERVER_SHA256_ARM64"; arch=arm64 ;; \
+      *) echo "unsupported architecture"; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/cs.deb "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server_${CODE_SERVER_VERSION}_${arch}.deb"; \
+    echo "${sha}  /tmp/cs.deb" | sha256sum -c -; \
+    dpkg -i /tmp/cs.deb; rm /tmp/cs.deb
+
+RUN useradd -m -s /bin/bash -u 1000 coder && echo "coder ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/coder
+ENV HF_HOME=/opt/hf-cache SENTENCE_TRANSFORMERS_HOME=/opt/hf-cache
+# CPU-only torch keeps the image far smaller than the default CUDA wheels.
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# labagent from this checkout, with the lab extras (chromadb, sentence-transformers, groq, langchain, qdrant-client, jupyterlab ...).
+COPY pyproject.toml README.md LICENSE MANIFEST.in /src/
+COPY labagent /src/labagent
+RUN pip install --no-cache-dir "/src[rag-lab]"
+
+# Pre-download the embedding model so the first ingest has no wait. Learners can run offline afterwards.
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')" \
+    && chmod -R a+rX /opt/hf-cache
+
+USER coder
+WORKDIR /home/coder/lab
+RUN labagent rag init --dir /home/coder/lab && python -m ipykernel install --user --name python3
+# Extensions come from the Open VSX registry; a network failure here should not fail the whole build.
+RUN code-server --install-extension ms-python.python --install-extension ms-toolsai.jupyter || echo "extensions not installed"
+
+EXPOSE 8080
+# PASSWORD comes from the environment (labagent rag ide sets a random one). Bound on all interfaces INSIDE the container only.
+CMD ["code-server", "--bind-addr", "0.0.0.0:8080", "--auth", "password", "/home/coder/lab"]
