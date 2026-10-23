@@ -196,3 +196,12 @@ def test_unreachable_model_gives_an_actionable_error(monkeypatch, capsys):
         raise nl.NLError("cannot reach the model endpoint at http://localhost:11434/v1. Run: ollama serve")
     monkeypatch.setattr(nl, "call_llm", boom)
     assert cli.main(["deploy rag-sec"]) == 2 and "ollama serve" in capsys.readouterr().err
+
+
+def test_the_guess_guard_stays_correct_as_more_packs_exist():
+    """Regression: adding a pack made 'rag' look distinctive. A word shared by 3+ packs never backs a model's guess."""
+    from labagent.nl import _distinctive_tokens
+    d = _distinctive_tokens(PACKS["rag-lakebase"], PACKS)
+    assert "rag" not in d and "lakebase" in d
+    assert {"sec", "filings"} <= _distinctive_tokens(PACKS["rag-sec-filings"], PACKS)          # a snapshot/live pair still counts
+    assert {"agent", "databricks"} & _distinctive_tokens(PACKS["db-agent"], PACKS)

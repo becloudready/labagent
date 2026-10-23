@@ -15,7 +15,7 @@ labagent --version
 | `inventory`, `sweep` | List and delete what learners created. Plan first, then apply exactly that reviewed plan |
 | `reset`, `offboard` | Rotate a learner's password; destroy a cohort (refuses while resources remain) |
 | `labagent "deploy rag-sec"` | Plain-English front end: a small local model ([docs](docs/packs.md#plain-english)) |
-| `launch`, `destroy` | Deploy a single lab from a pluggable **pack**, e.g. `rag-sec-filings` ([docs](docs/packs.md)) |
+| `launch`, `destroy` | Deploy a single lab from a pluggable **pack**, e.g. `rag-sec-filings` or [db-agent](https://github.com/db-agent/db-agent) ([docs](docs/packs.md)) |
 | `audit`, `cleanup` | Clean an untagged, long-lived account from an explicit **ruleset** ([docs](docs/account-cleanup.md)) |
 
 ## Safety

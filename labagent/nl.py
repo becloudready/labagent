@@ -169,11 +169,19 @@ def _canonical_action(model_action: str, text: str) -> str:
     return "destroy" if d and not l else "launch" if l and not d else a
 
 
+GENERIC = {"rag", "app", "the", "and", "for", "from", "over", "pack"}
+
+
 def _distinctive_tokens(pack: Any, packs: Dict[str, Any]) -> set:
+    """Words that point at this pack: in its id, aliases or title, shared with at most one other pack (a snapshot/live pair
+    is fine) and not generic. Stays correct as packs are added, unlike 'not shared by all packs'."""
     def toks(p):
         return {t for tok in (p.id, *p.aliases, p.title) for t in re.split(r"[^a-z0-9]+", tok.lower()) if len(t) > 2}
-    common = set.intersection(*(toks(p) for p in packs.values())) if packs else set()
-    return toks(pack) - common - {"the", "app", "and", "for", "from", "over"}
+    owners: Dict[str, int] = {}
+    for p in packs.values():
+        for t in toks(p):
+            owners[t] = owners.get(t, 0) + 1
+    return {t for t in toks(pack) if owners[t] <= 2 and t not in GENERIC}
 
 
 def validate(raw: str, text: str, resolve: Callable[[str], Any], packs: Optional[Dict[str, Any]] = None) -> Plan:

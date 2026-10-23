@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 
 from ..base import Pack, PackContext, PackError, Param, Step, state_dir
 from ..databricks import pg as pgmod
+from ..databricks.auth import login as login_shared
 from ..databricks.cli import Dbx
 from . import sources as src_mod
 from .chunking import make_chunks  # noqa: F401  (re-exported for source authors)
@@ -96,27 +97,8 @@ class RagPack(Pack):
         project = self._project(ctx)
         schema = self.source.schema
 
-        def login(c: PackContext) -> Dict[str, Any]:
-            """The CLI's default profile may be expired while another profile for the same workspace is fine: use it, say so."""
-            try:
-                return d().json("current-user", "me")
-            except PackError as first:
-                if c.params["profile"] or not hasattr(d(), "profiles"):
-                    raise
-                profiles = d().profiles()
-                default = next((p for p in profiles if p.get("default")), None)
-                valid = [p for p in profiles if p.get("valid")]
-                same = [p for p in valid if default and p.get("host") == default.get("host")]
-                if len(same) == 1:
-                    c.log(f"  default profile '{default['name']}' is expired: using '{same[0]['name']}' (same workspace)")
-                    d().profile = same[0]["name"]
-                    return d().json("current-user", "me")
-                names = ", ".join(p["name"] for p in valid) or "none"
-                raise PackError(f"{first} Profiles with a valid login: {names}. Choose one with --param profile=<name> "
-                                f"or DATABRICKS_CONFIG_PROFILE, or sign in again: databricks auth login") from first
-
         def preflight(c: PackContext):
-            me = login(c)
+            me = login_shared(c)
             user = me.get("userName")
             if not user:
                 raise PackError("not authenticated: run `databricks auth login` and retry")

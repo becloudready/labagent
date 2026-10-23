@@ -67,6 +67,27 @@ gh release create sec-10k-2026.11 out/* --repo becloudready/labagent-datasets
 The build is byte-for-byte reproducible. Then add the release URL and the printed `sha256` to `datasets.json` in a pull request.
 Data limitations (for example, no Item 7 for JPM and CVX) are listed in the dataset README.
 
+## db-agent (text-to-SQL on Databricks)
+
+Deploys [db-agent](https://github.com/db-agent/db-agent), the open-source text-to-SQL agent, to Databricks Apps in your own workspace.
+labagent contains none of db-agent's code: it clones the repo at a pinned commit, writes an `app.yaml` for your workspace, and deploys it.
+
+```bash
+labagent launch db-agent --name demo                              # app: db-agent-demo, data: samples.bakehouse
+labagent launch db-agent --name demo --param dataset=tpch         # any schema in the samples catalog
+labagent destroy db-agent --name demo
+```
+
+Steps: `preflight` (login, SQL warehouse, sample data, serving endpoints), `fetch` (pinned commit), `token`, `app`, `verify`
+(asks a real question through the deployed app: this proves the token, warehouse, LLM and SQL safety layer work together).
+
+- **Pinned code.** `ref` must be a full commit SHA, and the clone is refused if HEAD differs. To move to a newer db-agent, review it and change the pin.
+- **Data.** The `samples` catalog already exists in every workspace, so nothing is downloaded or redistributed.
+- **Credential.** The app needs a token for the warehouse and the LLM. labagent creates one with a 30-day lifetime (`--param token_days`), stores it
+  only as an app secret (via stdin, never on a command line, in state or in output), and `destroy` revokes it. If your workspace blocks
+  token creation, create one yourself and `export LABAGENT_DATABRICKS_TOKEN=...`; labagent then uses it and never revokes it.
+- **Free Edition.** Up to 3 apps per account, and apps stop after 24 hours.
+
 ## Plain English
 
 ```bash
