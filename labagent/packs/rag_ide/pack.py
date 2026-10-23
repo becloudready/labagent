@@ -14,6 +14,7 @@ from typing import Any, Dict, List
 
 from ..base import Pack, PackContext, PackError, Param, Step, state_dir
 from . import ec2 as ec2mod
+from . import local as localmod
 from .modal_gateway import ModalGateway, app_name, slug
 
 MAX_LEARNERS = 60
@@ -73,6 +74,16 @@ class _LazyEc2:
         return getattr(self._gw, name)
 
 
+class _LazyLocal:
+    def __init__(self) -> None:
+        self._gw = None
+
+    def __getattr__(self, name: str):
+        if self._gw is None:
+            self._gw = localmod.LocalDockerGateway()
+        return getattr(self._gw, name)
+
+
 class RagIde(Pack):
     id = "rag-ide"
     title = "Browser VS Code lab per learner (Modal)"
@@ -80,7 +91,8 @@ class RagIde(Pack):
     aliases = ("ide", "web-ide", "rag-web-ide")
     default_name = "cohort"
     params = [
-        Param("platform", "modal", "modal (one serverless sandbox per learner) | ec2 (one shared instance per cohort, much cheaper at scale)"),
+        Param("platform", "modal", "modal (one serverless sandbox per learner) | ec2 (one shared instance per cohort, much cheaper at scale) | local (Docker on this machine, for demos and tests)"),
+        Param("port", 8080, "local: first port; learner N gets port + N - 1 on 127.0.0.1"),
         Param("learners", "1", "Count (5) or comma list of names (ana,ben)"),
         Param("instance_type", "auto", "ec2: instance type, or auto"),
         Param("spot", False, "ec2: use a spot instance (cheaper, can be reclaimed)"),
@@ -100,12 +112,12 @@ class RagIde(Pack):
     ]
 
     def services(self, profile):
-        return {"modal": _LazyModal(), "ec2": _LazyEc2()}
+        return {"modal": _LazyModal(), "ec2": _LazyEc2(), "local": _LazyLocal()}
 
     def _validate(self, ctx: PackContext) -> None:
         p = ctx.params
-        if p["platform"] not in ("modal", "ec2"):
-            raise PackError("platform must be modal or ec2")
+        if p["platform"] not in ("modal", "ec2", "local"):
+            raise PackError("platform must be modal, ec2 or local")
         if p["tls"] not in ("letsencrypt", "internal"):
             raise PackError("tls must be letsencrypt or internal")
         names = learner_names(p["learners"])
@@ -157,9 +169,12 @@ class RagIde(Pack):
             passwords[n] = pw
             ctx.state["learners"] = learners        # persist progress so a failure part-way resumes
         ctx.mem["passwords"] = passwords
+        self._write_creds(ctx)
         return {"learners": learners}
 
-    def _credentials(self, ctx: PackContext):
+    def _write_creds(self, ctx: PackContext) -> Path:
+        """Write the 0600 credentials file. Called as soon as learners exist (so a later failure cannot lose their passwords)
+        and again as the last step. Passwords already on file are kept."""
         path = creds_path(ctx.name)
         old: Dict[str, str] = {}
         if path.exists():
@@ -171,6 +186,12 @@ class RagIde(Pack):
             w.writerow(["learner", "url", "password"])
             for n, info in sorted(ctx.state["learners"].items()):
                 w.writerow([n, info["url"], pw.get(n, "(lost: destroy and relaunch this learner)")])
+        ctx.mem["passwords"] = pw
+        return path
+
+    def _credentials(self, ctx: PackContext):
+        path = self._write_creds(ctx)
+        pw = ctx.mem.get("passwords", {})
         learners = sorted(ctx.state["learners"].items())
         sp = ctx.params["show_passwords"]
         show = sp == "yes" or (sp == "auto" and len(learners) <= 3)
@@ -212,15 +233,17 @@ class RagIde(Pack):
         ip = gw.public_ip(iid)
         ctx.mem["passwords"] = pw
         host = ec2mod.sslip_host(ip)
-        return {"instance_id": iid, "host": host,
-                "learners": {n: {"url": ec2mod.learner_url(host, n)} for n in names}}
+        out = {"instance_id": iid, "host": host, "learners": {n: {"url": ec2mod.learner_url(host, n)} for n in names}}
+        ctx.state.update(out)
+        self._write_creds(ctx)          # before the long wait: a failure from here on must not lose the passwords
+        return out
 
     def _ec2_wait(self, ctx: PackContext):
         gw = ctx.services["ec2"]
         host, names = ctx.state["host"], sorted(ctx.state["learners"])
         ctx.log("  the box is building the lab image (about 8 to 12 minutes the first time) ...")
         for _ in range(WAIT_S // 15):
-            if all(gw.ready(host, n) for n in names):
+            if all(gw.ready(host, n, verify=ctx.params["tls"] == "letsencrypt") for n in names):
                 ctx.log("  all learner IDEs answer over HTTPS")
                 return {"ready": True}
             gw.pause(15)
@@ -256,7 +279,83 @@ class RagIde(Pack):
                 Step("network", "Delete the security group", sg),
                 Step("credentials", "Remove the credentials file", self._forget)]
 
+    # ---- local Docker platform ------------------------------------------------------------------------------------------------
+    def _local_image(self, ctx: PackContext):
+        image = ctx.params["image"]
+        image = localmod.IMAGE if image in ("auto", "pypi") else image          # anything else is an existing image tag
+        ctx.services["local"].ensure_image(image, checkout_root())
+        return {"image": image}
+
+    def _local_preflight(self, ctx: PackContext):
+        self._validate(ctx)
+        where = ctx.services["local"].check_auth()
+        if not 1024 <= int(ctx.params["port"]) <= 65000 - len(ctx.mem["names"]):
+            raise PackError("port must be between 1024 and 65000")
+        ctx.log(f"  {where} | learners: {len(ctx.mem['names'])} | first port: {ctx.params['port']}")
+        return {"docker": where}
+
+    def _local_learners(self, ctx: PackContext):
+        gw, p = ctx.services["local"], ctx.params
+        names = ctx.mem.get("names") or learner_names(p["learners"])
+        learners: Dict[str, Dict[str, str]] = dict(ctx.state.get("learners", {}))
+        passwords: Dict[str, str] = {}
+        env = {"GROQ_API_KEY": os.environ["GROQ_API_KEY"], "GROQ_MODEL": p["groq_model"], "LLM_PROVIDER": "groq"} if p["llm"] == "groq-shared" else {}
+        for i, n in enumerate(names):
+            if n in learners and gw.alive(learners[n]["container"]):
+                ctx.log(f"  {n}: already running")
+                continue
+            gw.remove(localmod.container_name(ctx.name, n))          # a stopped container of the same name would block the new one
+            pw = secrets.token_urlsafe(12)
+            ctx.log(f"  starting {n} ...")
+            learners[n] = gw.launch(ctx.name, n, pw, int(p["port"]) + i, image=ctx.state["image"], cpu=float(p["cpu"]), memory_mib=int(p["memory_mib"]),
+                                    hours=int(p["hours"]), idle_s=int(p["idle_minutes"]) * 60, env=env)
+            passwords[n] = pw
+            ctx.state["learners"] = learners
+        ctx.mem["passwords"] = passwords
+        self._write_creds(ctx)
+        return {"learners": learners}
+
+    def _local_wait(self, ctx: PackContext):
+        gw = ctx.services["local"]
+        for _ in range(60):
+            if all(gw.ready(info["url"]) for info in ctx.state["learners"].values()):
+                ctx.log("  all learner IDEs answer")
+                return {"ready": True}
+            gw.pause(2)
+        raise PackError("learner IDEs did not answer in time. Check: docker logs <container>")
+
+    def _local_steps(self) -> List[Step]:
+        return [
+            Step("preflight", "Check Docker and settings", self._local_preflight),
+            Step("image", "Use or build the lab image", self._local_image),
+            Step("learners", "Start one container per learner on loopback", self._local_learners),
+            Step("wait", "Wait for every learner's IDE", self._local_wait),
+            Step("credentials", "Write the credentials file", self._credentials),
+        ]
+
+    def _local_destroy(self) -> List[Step]:
+        def remove(c):
+            gw = c.services["local"]
+            names = {i["container"] for i in c.state.get("learners", {}).values()} | set(gw.find(c.name))
+            for n in names:
+                gw.remove(n)
+            return {"learners": {}, "removed": len(names), "volumes": sorted({i["volume"] for i in c.state.get("learners", {}).values()} | set(c.state.get("volumes", [])))}
+
+        def volumes(c):
+            if not c.params["keep_work"]:
+                for v in c.state.get("volumes", []):
+                    c.services["local"].delete_volume(v)
+                return {"volumes": []}
+            return {}
+
+        return [Step("preflight", "Check Docker", lambda c: {"docker": c.services["local"].check_auth()}),
+                Step("remove", "Remove every learner's container", remove),
+                Step("volumes", "Delete learner volumes (unless keep_work)", volumes),
+                Step("credentials", "Remove the credentials file", self._forget)]
+
     def deploy_steps(self, ctx: PackContext) -> List[Step]:
+        if ctx.params["platform"] == "local":
+            return self._local_steps()
         if ctx.params["platform"] == "ec2":
             return self._ec2_steps()
         return [
@@ -286,6 +385,8 @@ class RagIde(Pack):
         return {"credentials_file": None}
 
     def destroy_steps(self, ctx: PackContext) -> List[Step]:
+        if ctx.params["platform"] == "local":
+            return self._local_destroy()
         if ctx.params["platform"] == "ec2":
             return self._ec2_destroy()
         # remember volume names before the learner records are cleared

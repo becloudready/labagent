@@ -193,11 +193,13 @@ class Ec2Gateway:
     def pause(self, seconds: float) -> None:
         self.ctx.sleep(seconds)
 
-    def ready(self, host: str, learner: str) -> bool:
-        """True once Caddy serves the learner's login page over valid HTTPS."""
+    def ready(self, host: str, learner: str, verify: bool = True) -> bool:
+        """True once Caddy serves the learner's login page. verify=False only for tls=internal, whose certificate is self-signed."""
+        import ssl
         import urllib.request
+        ctx = None if verify else ssl._create_unverified_context()
         try:
-            with urllib.request.urlopen(learner_url(host, learner) + "login", timeout=10) as r:
+            with urllib.request.urlopen(learner_url(host, learner) + "login", timeout=10, context=ctx) as r:
                 return r.status == 200
         except Exception:
             return False

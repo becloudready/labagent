@@ -34,7 +34,8 @@ class FakeEc2:
     def find(self, cohort): return [i for i, up in self.instances.items() if up]
     def pause(self, s): self.pauses.append(s)
 
-    def ready(self, host, learner):
+    def ready(self, host, learner, verify=True):
+        self.verify_seen = getattr(self, 'verify_seen', []) + [verify]
         self.polls += 1
         return self.polls > self.ready_after
 
@@ -216,3 +217,26 @@ def test_dockerfile_hands_the_workspace_to_the_user_before_switching_to_it():
     user = next(i for i, l in enumerate(lines) if l.strip() == "USER coder")
     workdir = next(i for i, l in enumerate(lines) if l.startswith("WORKDIR /home/coder/lab"))
     assert chown < user < workdir
+
+
+def test_self_signed_tls_skips_certificate_verification_only_when_internal():
+    f1 = FakeEc2()
+    launch(f1, tls="internal")
+    assert set(f1.verify_seen) == {False}
+    f2 = FakeEc2()
+    launch(f2, tls="letsencrypt")
+    assert set(f2.verify_seen) == {True}
+
+
+def test_passwords_survive_a_failure_after_the_instance_starts(monkeypatch):
+    """Regression: the credentials file used to be written only at the very end, so a failed wait lost every password."""
+    from labagent.packs.rag_ide import pack as pk
+    monkeypatch.setattr(pk, "WAIT_S", 30)
+    fake = FakeEc2(ready_after=10_000)
+    env, _ = launch(fake)
+    assert env.exit_code != 0
+    rows = list(csv.DictReader(creds_path("c1").open()))
+    assert len(rows) == 2 and all(r["password"] in fake.runs[0]["ud"] for r in rows)
+    fake.ready_after = 0
+    assert launch(fake)[0].exit_code == 0 and len(fake.runs) == 1                      # resume reuses the instance
+    assert list(csv.DictReader(creds_path("c1").open())) == rows                     # and keeps the same passwords
