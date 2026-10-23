@@ -1,0 +1,111 @@
+# Lab packs
+
+A pack is one lab: ordered, idempotent steps behind `launch` and `destroy`. Packs run on the learner's machine with their own
+credentials, or in your CI. Add a lab by writing a `Pack` subclass; the framework, CLI and result envelope do not change.
+
+```bash
+labagent packs                                   # list
+labagent launch rag-lakebase --name demo --dry-run
+labagent launch rag-lakebase --name demo         # re-run to resume after a failure
+labagent destroy rag-lakebase --name demo        # removes only what this pack created
+```
+
+## Writing a pack
+
+```python
+from labagent.packs.base import Pack, Param, Step
+
+class MyLab(Pack):
+    id = "my-lab"; summary = "what it builds"
+    params = [Param("size", "small")]
+    def deploy_steps(self, ctx):
+        return [Step("make", "Create the thing", lambda c: {"thing_id": "..."}, check=lambda c: "thing_id" in c.state)]
+    def destroy_steps(self, ctx): ...
+```
+
+Ship it in your own package and register it: `[project.entry-points."labagent.packs"] my-lab = "mypkg:MyLab"`.
+Rules: `check` is a read-only "already done" test; step outputs are non-secret; tokens stay in memory (`ctx.mem`).
+State is a 0600 file at `~/.labagent/packs/<pack>/<name>.json`.
+
+## RAG packs (Databricks Lakebase)
+
+One reusable pipeline, pluggable data sources. Each stage is idempotent, and `evaluate` gates the deploy:
+
+`preflight, project, locate, build (fetch, parse, chunk), schema, load (embed), index, evaluate, app`
+
+| Pack | Source | Use |
+|---|---|---|
+| `rag-sec-filings` | Pinned snapshot of real SEC 10-Ks ([dataset release](https://github.com/becloudready/labagent-datasets/releases/tag/sec-10k-2026.10)), split into Items. No SEC access or contact needed | Financial research |
+| `rag-sec-filings-live` | The same corpus downloaded fresh from EDGAR at launch (needs a contact for the SEC) | Newer filings, other tickers |
+| `rag-lakebase` | 25 invented passages | Smoke test only |
+
+```bash
+pip install 'labagent[rag]'      # needs the Databricks CLI, then: databricks auth login
+labagent launch rag-sec-filings --name sec --param "user_agent=Full Name name@example.com" \
+    --param tickers=AAPL,JPM,PFE --param filings=2
+```
+
+What makes it more than a toy: section-aware chunking, hybrid retrieval (pgvector + full-text, rank-fused), metadata filters
+(`{"ticker": "AAPL"}`), numbered citations with the filing URL, and an evaluation set that must reach `min_hit_rate`
+(default 0.6) before the app is deployed. The snapshot is downloaded from a GitHub release and verified against a SHA-256 committed in
+`labagent/packs/rag/sources/datasets.json`; a mismatch is refused. The live pack follows EDGAR rules (declared contact, under 10 requests
+per second, cached locally). Filings are never stored in this repo.
+
+Free Edition allows one Lakebase project: pass `--param project=<existing>` to share it. Each source uses its own schema, and
+`destroy` drops only that schema (and the project only if labagent created it). Apps stop after 24 hours.
+
+Add a source by subclassing `labagent.packs.rag.sources.Source` (`chunks()` and `eval_set()`) and registering it under the
+`labagent.rag_sources` entry point.
+
+## Publishing a dataset snapshot (maintainers)
+
+```bash
+labagent dataset --chunks ~/.labagent/cache/rag-sec-filings-live/<name>.jsonl --name sec-10k --version 2026.11 --out out/
+gh release create sec-10k-2026.11 out/* --repo becloudready/labagent-datasets
+```
+
+The build is byte-for-byte reproducible. Then add the release URL and the printed `sha256` to `datasets.json` in a pull request.
+Data limitations (for example, no Item 7 for JPM and CVX) are listed in the dataset README.
+
+## db-agent (text-to-SQL on Databricks)
+
+Deploys [db-agent](https://github.com/db-agent/db-agent), the open-source text-to-SQL agent, to Databricks Apps in your own workspace.
+labagent contains none of db-agent's code: it clones the repo at a pinned commit, writes an `app.yaml` for your workspace, and deploys it.
+
+```bash
+labagent launch db-agent --name demo                              # app: db-agent-demo, data: samples.bakehouse
+labagent launch db-agent --name demo --param dataset=tpch         # any schema in the samples catalog
+labagent destroy db-agent --name demo
+```
+
+Steps: `preflight` (login, SQL warehouse, sample data, serving endpoints), `fetch` (pinned commit), `token`, `app`, `verify`
+(asks a real question through the deployed app: this proves the token, warehouse, LLM and SQL safety layer work together).
+
+- **Pinned code.** `ref` must be a full commit SHA, and the clone is refused if HEAD differs. To move to a newer db-agent, review it and change the pin.
+- **Data.** The `samples` catalog already exists in every workspace, so nothing is downloaded or redistributed.
+- **Credential.** The app needs a token for the warehouse and the LLM. labagent creates one with a 30-day lifetime (`--param token_days`), stores it
+  only as an app secret (via stdin, never on a command line, in state or in output), and `destroy` revokes it. If your workspace blocks
+  token creation, create one yourself and `export LABAGENT_DATABRICKS_TOKEN=...`; labagent then uses it and never revokes it.
+- **Free Edition.** Up to 3 apps per account, and apps stop after 24 hours.
+
+## Plain English
+
+```bash
+labagent "Run and deploy rag-sec in databricks"      # shows the command, asks, then runs it
+labagent "tear down rag-sec" --print-only            # just show the command
+labagent ask what can you deploy                     # 'ask' lets you skip the quotes
+```
+
+A small model reads the sentence and picks an action (launch, destroy, list) and a pack. By default that is `qwen2.5-coder:0.5b`
+(about 400 MB) on local Ollama, so it runs on any laptop: `ollama pull qwen2.5-coder:0.5b`.
+Any OpenAI-compatible endpoint works: `--endpoint`, `--model`, or `LABAGENT_LLM_URL`, `LABAGENT_LLM_MODEL`, `LABAGENT_LLM_API_KEY`.
+A remote endpoint is announced before your sentence is sent to it.
+
+The model never runs anything, and it is not trusted for details:
+- The instance name (`called x`) and parameters (`profile DEFAULT`, `tickers AAPL,JPM`) are read from your sentence by exact rules, so they cannot be invented.
+- A pack you typed (`rag-sec`, or any id or alias) wins over the model's pick. If the model guessed, the pack needs a distinctive word from your sentence.
+- Requests that ask to create and delete in one sentence are refused. A delete needs a delete word, and you confirm by typing the instance name.
+- Without a terminal, nothing runs unless you pass `--yes`.
+
+Measured on `qwen2.5-coder:0.5b` with 42 phrasings (25 used while tuning, 17 unseen): all handled correctly, including refusals.
+That is a small, author-written test set, so expect misses on unusual wording. A refusal is the usual failure, and the command shown is always checked by you.

@@ -24,7 +24,74 @@ def _emit(env: Envelope, output: str) -> None:
         Path(output).chmod(0o600)
 
 
+def _packs_main(args) -> int:
+    from .packs import registry
+    from .packs.base import run_pack
+    if args.cmd == "packs":
+        for pid, pk in sorted(registry.all_packs().items()):
+            print(f"{pid:16} {pk.summary}")
+        return 0
+    try:
+        pack = registry.resolve(args.pack)
+        given = dict(kv.split("=", 1) for kv in args.param)
+    except (KeyError, ValueError) as e:
+        print(f"error: {e.args[0] if e.args else e}", file=sys.stderr)
+        return 2
+    name = args.name or pack.default_name
+    if not name:
+        print("error: --name is required for this pack", file=sys.stderr)
+        return 2
+    env = run_pack(pack, args.cmd, name, given, dry_run=args.dry_run)
+    _emit(env, args.output)
+    return env.exit_code
+
+
+KNOWN = {"run", "packs", "dataset", "launch", "destroy", "bootstrap-path", "commands"}
+
+
+def _nl_main(argv) -> int:
+    """labagent "deploy rag-sec on databricks": translate with a small model, confirm, then run the real command."""
+    from . import nl
+    from .packs import registry
+    q = argparse.ArgumentParser(prog="labagent", description="Plain-English front end: labagent \"deploy rag-sec on databricks\"")
+    q.add_argument("text", nargs="+")
+    q.add_argument("--endpoint", help=f"OpenAI-compatible base URL (default {nl.DEFAULT_URL}, or LABAGENT_LLM_URL)")
+    q.add_argument("--model", help=f"Model (default {nl.DEFAULT_MODEL}, or LABAGENT_LLM_MODEL)")
+    q.add_argument("-y", "--yes", action="store_true", help="Run without asking for confirmation")
+    q.add_argument("--print-only", action="store_true", help="Show the translated command and stop")
+    a = q.parse_args(argv[1:] if argv and argv[0] == "ask" else argv)
+    cfg = nl.settings(a.endpoint, a.model)
+    if not nl.is_local(cfg["url"]):
+        print(f"note: your request is sent to {cfg['url']}", file=sys.stderr)
+    try:
+        plan = nl.translate(" ".join(a.text), registry.all_packs(), registry.resolve, cfg["url"], cfg["model"], cfg["api_key"])
+    except nl.NLError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    for w in plan.warnings:
+        print(f"warning: {w}", file=sys.stderr)
+    print(f"Interpreted as:\n  {plan.command_line()}", file=sys.stderr)
+    if a.print_only:
+        return 0
+    if not a.yes:
+        if not sys.stdin.isatty():
+            print("error: not an interactive terminal: re-run with --yes to execute, or use the command above", file=sys.stderr)
+            return 2
+        if plan.action == "destroy":
+            ans = input(f"This deletes resources. Type the instance name ({plan.name}) to confirm: ").strip()
+            if ans != plan.name:
+                print("cancelled", file=sys.stderr)
+                return 1
+        elif input("Run it? [y/N] ").strip().lower() not in ("y", "yes"):
+            print("cancelled", file=sys.stderr)
+            return 1
+    return main(plan.argv())
+
+
 def main(argv=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and not argv[0].startswith("-") and (argv[0] not in KNOWN or argv[0] == "ask"):
+        return _nl_main(argv)
     p = argparse.ArgumentParser(prog="labagent", description=__doc__)
     p.add_argument("--version", action="version", version=__version__)
     p.add_argument("--config", help="JSON config file (or LABAGENT_CONFIG)")
@@ -34,6 +101,19 @@ def main(argv=None) -> int:
     r.add_argument("--job", required=True, help="Path to job JSON (contains roster: keep it out of git and logs)")
     r.add_argument("--output", default="result.json", help="Result envelope path, or - for stdout")
     r.add_argument("--ruleset", help="Path to a ruleset JSON for audit/cleanup (merged into the job)")
+    sub.add_parser("packs", help="List available lab packs")
+    dp = sub.add_parser("dataset", help="Package a chunk file as a versioned, checksummed snapshot (maintainers)")
+    dp.add_argument("--chunks", required=True, help="JSONL of chunks, e.g. ~/.labagent/cache/rag-sec-filings/<name>.jsonl")
+    dp.add_argument("--name", required=True)
+    dp.add_argument("--version", required=True)
+    dp.add_argument("--out", required=True, help="Output directory")
+    for verb, text in (("launch", "Deploy a lab pack (idempotent: re-run to resume)"), ("destroy", "Remove what a pack created")):
+        lp = sub.add_parser(verb, help=text)
+        lp.add_argument("pack")
+        lp.add_argument("--name", help="Instance name (state key and resource suffix); defaults to the pack's own default")
+        lp.add_argument("--param", action="append", default=[], metavar="KEY=VALUE", help="Pack parameter, repeatable")
+        lp.add_argument("--dry-run", action="store_true", help="Show the steps without running them")
+        lp.add_argument("--output", default="-", help="Result envelope path, or - for stdout")
     sub.add_parser("bootstrap-path", help="Print the path of the packaged Terraform state-backend module")
     sub.add_parser("commands", help="List supported job commands")
     args = p.parse_args(argv)
@@ -41,6 +121,17 @@ def main(argv=None) -> int:
     if args.cmd == "bootstrap-path":
         print(STATE_BACKEND_DIR)
         return 0
+    if args.cmd == "dataset":
+        from .datasets import DatasetError, build_snapshot
+        try:
+            m = build_snapshot(Path(args.chunks), args.name, args.version, Path(args.out))
+        except DatasetError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        print(json.dumps({k: m[k] for k in ("file", "chunks", "bytes", "sha256")}, indent=2))
+        return 0
+    if args.cmd in ("packs", "launch", "destroy"):
+        return _packs_main(args)
     if args.cmd == "commands":
         print("\n".join(sorted(COMMANDS)))
         return 0
