@@ -44,7 +44,6 @@ Documentation = "https://github.com/becloudready/labagent/tree/main/docs"
 
 [project.scripts]
 labagent = "labagent.cli:main"
-labctl = "labagent.cli:main"   # deprecated alias from before the rename
 
 [tool.setuptools]
 include-package-data = false

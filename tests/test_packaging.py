@@ -29,3 +29,10 @@ def test_every_runtime_data_file_is_covered_by_package_data():
 
 def test_the_dataset_registry_pin_is_shipped():
     assert any(fnmatch.fnmatch("packs/rag/sources/datasets.json", p) for p in patterns())
+
+
+def test_only_the_labagent_command_is_installed():
+    """`labctl` is another project's name on PyPI: installing labagent must not put a command with that name on PATH."""
+    text = (ROOT / "pyproject.toml").read_text()
+    scripts = re.search(r"\[project\.scripts\](.*?)(\n\[|\Z)", text, re.S).group(1)
+    assert re.findall(r"^(\S+)\s*=", scripts, re.M) == ["labagent"]

@@ -6,7 +6,7 @@ from typing import Any, Dict
 from .context import Ctx
 from .discovery import Scope
 from .envelope import Envelope
-from . import audit as audit_mod, cleanup as cleanup_mod, iam_ops, sweep
+from . import cleanup as cleanup_mod, iam_ops, sweep
 
 COMMANDS = {"provision", "inventory", "sweep", "reset", "offboard", "audit", "cleanup"}
 
