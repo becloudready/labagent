@@ -288,6 +288,8 @@ class RagPack(Pack):
 
 class RagLakebase(RagPack):
     id = "rag-lakebase"
+    aliases = ("rag-demo",)
+    default_name = "demo"
     title = "RAG demo on Lakebase (pgvector)"
     summary = "Demo corpus (25 invented passages) to smoke-test the RAG pipeline and Databricks setup."
     source_id = "builtin"
@@ -295,6 +297,8 @@ class RagLakebase(RagPack):
 
 class RagSecFilings(RagPack):
     id = "rag-sec-filings"
+    aliases = ("rag-sec", "sec-filings")
+    default_name = "sec"
     title = "Financial research RAG over SEC 10-K filings"
     summary = "RAG over a pinned snapshot of real 10-Ks: hybrid search, metadata filters, citations, eval gate."
     source_id = "sec-10k-snapshot"
@@ -302,6 +306,8 @@ class RagSecFilings(RagPack):
 
 class RagSecFilingsLive(RagPack):
     id = "rag-sec-filings-live"
+    aliases = ("rag-sec-live",)
+    default_name = "sec-live"
     title = "Financial research RAG, fresh from SEC EDGAR"
     summary = "Same pipeline, but downloads the filings from EDGAR at launch (needs a contact for the SEC)."
     source_id = "sec-10k"

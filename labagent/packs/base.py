@@ -52,6 +52,8 @@ class Pack:
     id: str = ""
     title: str = ""
     summary: str = ""
+    aliases: tuple = ()          # short names accepted on the command line and by the natural-language translator
+    default_name: str = ""       # instance name used when --name is omitted
     params: List[Param] = []
 
     def deploy_steps(self, ctx: PackContext) -> List[Step]:

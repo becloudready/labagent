@@ -66,3 +66,25 @@ gh release create sec-10k-2026.11 out/* --repo becloudready/labagent-datasets
 
 The build is byte-for-byte reproducible. Then add the release URL and the printed `sha256` to `datasets.json` in a pull request.
 Data limitations (for example, no Item 7 for JPM and CVX) are listed in the dataset README.
+
+## Plain English
+
+```bash
+labagent "Run and deploy rag-sec in databricks"      # shows the command, asks, then runs it
+labagent "tear down rag-sec" --print-only            # just show the command
+labagent ask what can you deploy                     # 'ask' lets you skip the quotes
+```
+
+A small model reads the sentence and picks an action (launch, destroy, list) and a pack. By default that is `qwen2.5-coder:0.5b`
+(about 400 MB) on local Ollama, so it runs on any laptop: `ollama pull qwen2.5-coder:0.5b`.
+Any OpenAI-compatible endpoint works: `--endpoint`, `--model`, or `LABAGENT_LLM_URL`, `LABAGENT_LLM_MODEL`, `LABAGENT_LLM_API_KEY`.
+A remote endpoint is announced before your sentence is sent to it.
+
+The model never runs anything, and it is not trusted for details:
+- The instance name (`called x`) and parameters (`profile DEFAULT`, `tickers AAPL,JPM`) are read from your sentence by exact rules, so they cannot be invented.
+- A pack you typed (`rag-sec`, or any id or alias) wins over the model's pick. If the model guessed, the pack needs a distinctive word from your sentence.
+- Requests that ask to create and delete in one sentence are refused. A delete needs a delete word, and you confirm by typing the instance name.
+- Without a terminal, nothing runs unless you pass `--yes`.
+
+Measured on `qwen2.5-coder:0.5b` with 42 phrasings (25 used while tuning, 17 unseen): all handled correctly, including refusals.
+That is a small, author-written test set, so expect misses on unusual wording. A refusal is the usual failure, and the command shown is always checked by you.
