@@ -36,6 +36,9 @@ RUN pip install --no-cache-dir "/src[rag-lab]"
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')" \
     && chmod -R a+rX /opt/hf-cache
 
+# Create the workspace as root and hand it over BEFORE switching user: the classic Docker builder (Ubuntu's docker.io, no
+# BuildKit) creates a WORKDIR as root even after USER, which made `labagent rag init` fail with a PermissionError.
+RUN mkdir -p /home/coder/lab && chown coder:coder /home/coder/lab
 USER coder
 WORKDIR /home/coder/lab
 RUN labagent rag init --dir /home/coder/lab && python -m ipykernel install --user --name python3

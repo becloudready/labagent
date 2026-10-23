@@ -2,7 +2,7 @@
 """Fail if tracked files contain what must never be committed: real emails, AWS account IDs, keys.
 
 Run in CI and before every push. Allowed: example.com / example.org placeholders,
-and the documentation account 123456789012.
+the documentation account 123456789012, and Canonical's public AMI publisher id (a vendor id, not ours).
 """
 import re
 import subprocess
@@ -10,7 +10,7 @@ import sys
 
 ALLOWED_EMAIL = re.compile(r"@(example\.(com|org)|users\.noreply\.github\.com)$", re.I)
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
-ACCOUNT = re.compile(r"(?<![\d])(?!123456789012)\d{12}(?![\d])")
+ACCOUNT = re.compile(r"(?<![\d])(?!123456789012|099720109477)\d{12}(?![\d])")
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
 KEYS = re.compile(r"AKIA[0-9A-Z]{16}|-----BEGIN (RSA |EC )?PRIVATE KEY-----|aws_secret_access_key\s*=\s*\S{20,}", re.I)
 SKIP = ("LICENSE", ".venv/")
