@@ -17,6 +17,8 @@ class FakeDbx:
         self.projects = dict(projects or {})
         self.apps = {}
         self.calls = []
+        self.soft_deleted, self.purged = set(), []
+        self.ghosts = set()          # deleted projects that still answer get-project
         self.endpoints = endpoints
 
     def json(self, *a, body=None):
@@ -28,10 +30,14 @@ class FakeDbx:
         if a[:2] == ("postgres", "list-projects"):
             return {"projects": [{"name": f"projects/{p}"} for p in self.projects]}
         if a[:2] == ("postgres", "create-project"):
+            if a[2] in self.soft_deleted:
+                raise PackError("A soft-deleted project currently has this resource name.")
             self.projects[a[2]] = True
             return {}
         if a[:2] == ("postgres", "delete-project"):
-            self.projects.pop(a[2].split("/")[-1], None)
+            n = a[2].split("/")[-1]
+            self.projects.pop(n, None)
+            self.soft_deleted.add(n)
             return {}
         if a[:2] == ("postgres", "list-branches"):
             return {"branches": [{"name": f"{a[2]}/branches/main", "status": {"default": True}}]}
@@ -59,13 +65,18 @@ class FakeDbx:
     def exists(self, *a):
         self.calls.append(a)
         if a[:2] == ("postgres", "get-project"):
-            return a[2].split("/")[-1] in self.projects
+            return a[2].split("/")[-1] in self.projects or a[2].split("/")[-1] in self.ghosts
         if a[:2] == ("apps", "get"):
             return a[2] in self.apps
         return False
 
     def api(self, method, path, body=None):
         self.calls.append((method, path))
+        if method == "delete":
+            n = path.split("/projects/")[1].split("?")[0]
+            self.purged.append(n)
+            self.soft_deleted.discard(n)
+            return {"done": True}
         return {"data": [{"embedding": [0.1] * DIM} for _ in body["input"]]}
 
 
@@ -290,3 +301,69 @@ def test_changed_corpus_rebuilds_and_replaces_the_table_but_same_corpus_is_skipp
     assert "stale-old-row" not in pg.rows and len(pg.rows) == 25
     again = run_pack(RagLakebase(), "launch", "demo", {"min_hit_rate": 0}, services=svc)
     assert {i["step"]: i["state"] for i in again.items}["load"] == "skipped"
+
+
+class StaleDefaultDbx(FakeDbx):
+    """The CLI's default profile is expired; 'GOOD' is valid for the same workspace."""
+    def __init__(self, profiles, **kw):
+        super().__init__(**kw)
+        self.profile = None
+        self._profiles = profiles
+
+    def json(self, *a, body=None):
+        if a[:2] == ("current-user", "me") and self.profile != "GOOD":
+            raise PackError("databricks current-user me failed: Error: refresh token is invalid")
+        return super().json(*a, body=body)
+
+    def profiles(self):
+        return self._profiles
+
+
+STALE = [{"name": "stale", "host": "https://w1", "valid": False, "default": True}]
+
+
+def test_expired_default_profile_falls_back_to_the_valid_one_for_the_same_workspace(home):
+    dbx = StaleDefaultDbx(STALE + [{"name": "GOOD", "host": "https://w1", "valid": True}])
+    svc, _ = services(dbx=dbx)
+    env = run_pack(RagLakebase(), "launch", "demo", {"min_hit_rate": 0}, services=svc)
+    assert env.status == "ok" and dbx.profile == "GOOD"
+
+
+def test_no_silent_fallback_to_a_different_workspace_and_errors_name_the_valid_profiles(home):
+    dbx = StaleDefaultDbx(STALE + [{"name": "OTHER", "host": "https://w2", "valid": True}])
+    env = run_pack(RagLakebase(), "launch", "demo", {}, services=services(dbx=dbx)[0])
+    assert env.status == "failed" and "OTHER" in env.error and "--param profile=" in env.error and dbx.profile is None
+
+
+def test_an_explicit_profile_is_never_overridden(home):
+    dbx = StaleDefaultDbx(STALE + [{"name": "GOOD", "host": "https://w1", "valid": True}])
+    env = run_pack(RagLakebase(), "launch", "demo", {"profile": "stale"}, services=services(dbx=dbx)[0])
+    assert env.status == "failed" and dbx.profile is None
+
+
+def test_a_deleted_project_that_still_answers_get_is_recreated(home):
+    """Regression (live): after teardown, get-project still returned the record while list-projects omitted it."""
+    dbx = FakeDbx()
+    dbx.ghosts.add("rag-demo")
+    env = run_pack(RagLakebase(), "launch", "demo", {"min_hit_rate": 0}, services=services(dbx=dbx)[0])
+    assert env.status == "ok" and "rag-demo" in dbx.projects
+    assert {i["step"]: i["state"] for i in env.items}["project"] == "done"
+
+
+def test_destroy_purges_so_the_name_can_be_reused_and_keep_deleted_opts_out(home):
+    svc, _ = services()
+    run_pack(RagLakebase(), "launch", "demo", {"min_hit_rate": 0}, services=svc)
+    run_pack(RagLakebase(), "destroy", "demo", {}, services=svc)
+    dbx = svc["dbx"]
+    assert dbx.purged == ["rag-demo"] and "rag-demo" not in dbx.soft_deleted
+    again = run_pack(RagLakebase(), "launch", "demo", {"min_hit_rate": 0}, services=svc)        # same name works right away
+    assert again.status == "ok"
+    run_pack(RagLakebase(), "destroy", "demo", {"keep_deleted": True}, services=svc)
+    assert dbx.purged == ["rag-demo"] and "rag-demo" in dbx.soft_deleted                        # opted out: nothing more purged
+
+
+def test_soft_deleted_name_gives_a_plain_explanation(home):
+    dbx = FakeDbx()
+    dbx.soft_deleted.add("rag-demo")
+    env = run_pack(RagLakebase(), "launch", "demo", {"min_hit_rate": 0}, services=services(dbx=dbx)[0])
+    assert env.status == "failed" and "soft-deleted" in env.error and "purge=true" in env.error

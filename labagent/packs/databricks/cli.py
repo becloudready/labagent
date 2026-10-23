@@ -57,6 +57,14 @@ class Dbx:
                 self._sleep(min(2 ** (attempt + 1), 30))
         return json.loads(out) if out.strip() else {}
 
+    def profiles(self) -> list:
+        """Configured CLI profiles with their host and whether the login is still valid."""
+        saved, self.profile = self.profile, None
+        try:
+            return (self.json("auth", "profiles") or {}).get("profiles", [])
+        finally:
+            self.profile = saved
+
     def exists(self, *args: str) -> bool:
         try:
             self.text(*args)

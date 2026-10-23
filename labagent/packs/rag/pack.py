@@ -54,6 +54,7 @@ class RagPack(Pack):
         Param("embedding_endpoint", None, "Serving endpoint for embeddings (auto-discovered if omitted)"),
         Param("chat_endpoint", None, "Serving endpoint for answers (auto-discovered if omitted)"),
         Param("top_k", 4, "Passages retrieved per question"),
+        Param("keep_deleted", False, "On destroy, keep the soft-deleted project (its name stays reserved) instead of purging it"),
         Param("min_hit_rate", 0.6, "Deploy only if the evaluation hit rate reaches this (0 disables the gate)"),
     ]
 
@@ -95,8 +96,27 @@ class RagPack(Pack):
         project = self._project(ctx)
         schema = self.source.schema
 
+        def login(c: PackContext) -> Dict[str, Any]:
+            """The CLI's default profile may be expired while another profile for the same workspace is fine: use it, say so."""
+            try:
+                return d().json("current-user", "me")
+            except PackError as first:
+                if c.params["profile"] or not hasattr(d(), "profiles"):
+                    raise
+                profiles = d().profiles()
+                default = next((p for p in profiles if p.get("default")), None)
+                valid = [p for p in profiles if p.get("valid")]
+                same = [p for p in valid if default and p.get("host") == default.get("host")]
+                if len(same) == 1:
+                    c.log(f"  default profile '{default['name']}' is expired: using '{same[0]['name']}' (same workspace)")
+                    d().profile = same[0]["name"]
+                    return d().json("current-user", "me")
+                names = ", ".join(p["name"] for p in valid) or "none"
+                raise PackError(f"{first} Profiles with a valid login: {names}. Choose one with --param profile=<name> "
+                                f"or DATABRICKS_CONFIG_PROFILE, or sign in again: databricks auth login") from first
+
         def preflight(c: PackContext):
-            me = d().json("current-user", "me")
+            me = login(c)
             user = me.get("userName")
             if not user:
                 raise PackError("not authenticated: run `databricks auth login` and retry")
@@ -112,8 +132,19 @@ class RagPack(Pack):
                                 f"Reuse it with --param project={others[0].split('/')[-1]} or delete it first")
             return {"user": user, "embedding_endpoint": emb, "chat_endpoint": chat, "project": project}
 
+        def project_listed() -> bool:
+            # list membership, not get-project: a deleted project can still answer get-project for a while
+            return f"projects/{project}" in [p.get("name") for p in _items(d().json("postgres", "list-projects"), "projects")]
+
         def mk_project(c: PackContext):
-            d().json("postgres", "create-project", project)
+            try:
+                d().json("postgres", "create-project", project)
+            except PackError as e:
+                if "soft-deleted" in str(e):
+                    raise PackError(f"the name '{project}' is held by a soft-deleted project. Use another name "
+                                    f"(--param project=<new>) or purge it: databricks api delete "
+                                    f"'/api/2.0/postgres/projects/{project}?purge=true'") from e
+                raise
             return {"project_created": True}
 
         def locate(c: PackContext):
@@ -235,7 +266,7 @@ class RagPack(Pack):
 
         return [
             Step("preflight", "Check login, serving endpoints and Free Edition project limit", preflight),
-            Step("project", "Create the Lakebase project", mk_project, check=lambda c: d().exists("postgres", "get-project", f"projects/{project}")),
+            Step("project", "Create the Lakebase project", mk_project, check=lambda c: project_listed()),
             Step("locate", "Find the compute endpoint", locate),
             Step("build", f"Fetch, parse and chunk the '{self.source.id}' corpus", build, check=lambda c: self._chunks_file(c).exists() and c.state.get("corpus") == self.source.fingerprint(c)),
             Step("schema", "Enable pgvector and create the table", sch),
@@ -265,6 +296,9 @@ class RagPack(Pack):
                 c.log("project was not created by labagent: leaving it in place")
                 return
             d().json("postgres", "delete-project", f"projects/{project}")
+            if str(c.params["keep_deleted"]).lower() not in ("true", "1", "yes"):
+                # Lakebase soft-deletes: purge so the name can be reused and no copy of the data lingers
+                d().api("delete", f"/api/2.0/postgres/projects/{project}?purge=true")
 
         def rm_app(c: PackContext):
             try:
