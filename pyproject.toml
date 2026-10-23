@@ -5,13 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "labagent"
 dynamic = ["version"]
-description = "Provision, audit and safely tear down ephemeral AWS sandboxes for workshops, bootcamps and shared training accounts."
+description = "Open-source CLI and AI agent to launch and tear down hands-on labs for RAG, LLM and Databricks, plus AWS and Terraform sandboxes."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "BeCloudReady" }]
-keywords = ["aws", "training", "workshop", "sandbox", "cleanup", "iam", "terraform", "finops", "boto3"]
+keywords = ["hands-on-labs", "rag", "llm", "databricks", "lakebase", "pgvector", "text-to-sql", "ollama", "ai-agent", "aws", "terraform", "training", "workshop", "sandbox", "cleanup", "iam", "boto3"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
