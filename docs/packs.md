@@ -5,6 +5,7 @@ credentials, or in your CI. Add a lab by writing a `Pack` subclass; the framewor
 
 ```bash
 labagent packs                                   # list
+labagent packs --json                            # catalog for dashboards: params, platforms, cost tier
 labagent launch rag-sec-tutorial --name demo --dry-run
 labagent launch rag-sec-tutorial --name demo         # re-run to resume after a failure
 labagent destroy rag-sec-tutorial --name demo        # removes only what this pack created

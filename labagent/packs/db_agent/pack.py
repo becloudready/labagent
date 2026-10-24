@@ -77,6 +77,8 @@ def _items(resp: Any, key: str) -> List[Dict[str, Any]]:
 class DbAgent(Pack):
     id = "db-agent"
     aliases = ("dbagent", "db-agent-databricks", "text-to-sql")
+    platforms = ("databricks",)
+    cost_tier = "free"
     default_name = "demo"
     title = "DB Agent: text-to-SQL on Databricks"
     summary = "Deploy db-agent (github.com/db-agent/db-agent) to Databricks Apps over a Databricks sample dataset, then smoke-test it."

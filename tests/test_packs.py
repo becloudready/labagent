@@ -142,3 +142,20 @@ def test_an_explicit_profile_is_never_overridden(home):
     with pytest.raises(PackError):
         login(ctx_for(dbx, profile="stale"))
     assert dbx.profile is None
+
+
+# ---- machine-readable catalog (the console seeds its lab list from this) ------------------------------------------------------------
+
+def test_packs_json_describes_every_pack_with_platforms_and_params(capsys, home):
+    assert main(["packs", "--json"]) == 0
+    cat = {p["id"]: p for p in json.loads(capsys.readouterr().out)["packs"]}
+    assert sorted(cat) == ["db-agent", "rag-ide", "rag-sec-tutorial"]
+    assert cat["rag-ide"]["platforms"] == ["local", "ec2", "modal"] and cat["rag-ide"]["cost_tier"] == "metered"
+    assert {"name": "hours", "default": 4, "help": "Hard cap per session, 1 to 24", "required": False} in cat["rag-ide"]["params"]
+    assert all(p["title"] and p["summary"] and p["platforms"] and p["cost_tier"] for p in cat.values())
+
+
+def test_packs_json_never_contains_a_credential(capsys, home, monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_" + "a" * 40)
+    main(["packs", "--json"])
+    assert "gsk_" not in capsys.readouterr().out

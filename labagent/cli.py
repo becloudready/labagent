@@ -28,6 +28,9 @@ def _packs_main(args) -> int:
     from .packs import registry
     from .packs.base import run_pack
     if args.cmd == "packs":
+        if args.json:
+            print(json.dumps({"packs": [pk.describe() for _, pk in sorted(registry.all_packs().items())]}, indent=2))
+            return 0
         for pid, pk in sorted(registry.all_packs().items()):
             print(f"{pid:16} {pk.summary}")
         return 0
@@ -101,7 +104,8 @@ def main(argv=None) -> int:
     r.add_argument("--job", required=True, help="Path to job JSON (contains roster: keep it out of git and logs)")
     r.add_argument("--output", default="result.json", help="Result envelope path, or - for stdout")
     r.add_argument("--ruleset", help="Path to a ruleset JSON for audit/cleanup (merged into the job)")
-    sub.add_parser("packs", help="List available lab packs")
+    pk = sub.add_parser("packs", help="List available lab packs")
+    pk.add_argument("--json", action="store_true", help="Machine-readable catalog with parameters, platforms and cost tier (used by the console)")
     from .ai.rag import cli as rag_cli
     rag_cli.add_parser(sub)
     dp = sub.add_parser("dataset", help="Package a chunk file as a versioned, checksummed snapshot (maintainers)")

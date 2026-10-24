@@ -54,6 +54,8 @@ class Pack:
     summary: str = ""
     aliases: tuple = ()          # short names accepted on the command line and by the natural-language translator
     default_name: str = ""       # instance name used when --name is omitted
+    platforms: tuple = ()        # where the pack can run, for the console's platform picker (first is the default)
+    cost_tier: str = ""          # free | low | metered. A hint for dashboards, not a price
     params: List[Param] = []
 
     def deploy_steps(self, ctx: PackContext) -> List[Step]:
@@ -61,6 +63,12 @@ class Pack:
 
     def destroy_steps(self, ctx: PackContext) -> List[Step]:
         raise NotImplementedError
+
+    def describe(self) -> Dict[str, Any]:
+        """Machine-readable description for `labagent packs --json`. No secrets: defaults are literals from the code."""
+        return {"id": self.id, "title": self.title, "summary": self.summary, "aliases": list(self.aliases),
+                "default_name": self.default_name, "platforms": list(self.platforms), "cost_tier": self.cost_tier,
+                "params": [{"name": q.name, "default": q.default, "help": q.help, "required": q.required} for q in self.params]}
 
     def services(self, profile: Optional[str]) -> Dict[str, Any]:
         """Real service objects for this pack. Tests bypass this by passing their own services."""

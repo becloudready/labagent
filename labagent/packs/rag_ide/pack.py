@@ -89,6 +89,8 @@ class RagIde(Pack):
     title = "Browser VS Code lab per learner (Modal)"
     summary = "Serverless web IDE with the RAG lab for each learner: one Modal login, nothing for learners to install"
     aliases = ("ide", "web-ide", "rag-web-ide")
+    platforms = ("local", "ec2", "modal")
+    cost_tier = "metered"
     default_name = "cohort"
     params = [
         Param("platform", "modal", "modal (one serverless sandbox per learner) | ec2 (one shared instance per cohort, much cheaper at scale) | local (Docker on this machine, for demos and tests)"),

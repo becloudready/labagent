@@ -48,6 +48,8 @@ class RagSecTutorial(Pack):
     title = "RAG on Databricks, step by step (notebooks)"
     summary = "Uploads nine notebooks and the app code to your workspace so a student builds the SEC filings RAG one step at a time."
     aliases = ("rag-tutorial", "sec-tutorial", "rag-notebooks")
+    platforms = ("databricks",)
+    cost_tier = "free"
     default_name = "demo"
     output_keys = ("workspace_path", "url", "notebooks")
     params = [
