@@ -116,6 +116,13 @@ class RagIde(Pack):
     def services(self, profile):
         return {"modal": _LazyModal(), "ec2": _LazyEc2(), "local": _LazyLocal()}
 
+    def outputs(self, state):
+        """URLs only. State also holds sandbox ids and file paths that a dashboard has no use for."""
+        out = {"learners": {n: {"url": i.get("url")} for n, i in sorted((state.get("learners") or {}).items())}}
+        if state.get("host"):
+            out["host"] = state["host"]
+        return out
+
     def _validate(self, ctx: PackContext) -> None:
         p = ctx.params
         if p["platform"] not in ("modal", "ec2", "local"):
