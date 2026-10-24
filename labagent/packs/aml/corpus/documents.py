@@ -185,60 +185,100 @@ def policy_documents(jurisdiction: str) -> List[Doc]:
 
 # ---- case files --------------------------------------------------------------------------------------------------------------------
 
-def case_documents(t: Tables, jurisdiction: str, window_days: int = 30, max_rows: int = 60) -> List[Doc]:
-    """One file per alert. No label, pattern or reason: those live only in ground_truth."""
+POOL = re.compile(r"^X0\d{4}$")      # ordinary outside parties shared by every customer: following them would pull in the whole book
+
+
+class CaseIndex:
+    """What an investigator can pull for an alert without knowing the answer: no ground truth is read here.
+
+    The alert account's own transfers in the window, the transfers between accounts that deal with it (up to `depth` steps out,
+    ignoring the shared outside parties), and the last few earlier transfers with each of its recent counterparties.
+    """
+
+    def __init__(self, t: Tables, window_days: int = 30, depth: int = 8, history_per_party: int = 3, max_rows: int = 80):
+        self.t, self.window_days, self.depth, self.hist, self.max_rows = t, window_days, depth, history_per_party, max_rows
+        self.acct = {a["id"]: a for a in t["accounts"]}
+        self.cust = {c["id"]: c for c in t["customers"]}
+        self.kyc = {k["customer_id"]: k["profile"] for k in t["kyc_profiles"]}
+        self.by_account: Dict[str, List[Dict[str, Any]]] = {}
+        for x in t["transactions"]:
+            for side in ("from_account", "to_account"):
+                self.by_account.setdefault(x[side], []).append(x)
+        self.alerts_by_account: Dict[str, List[Dict[str, Any]]] = {}
+        for a in t["alerts"]:
+            self.alerts_by_account.setdefault(a["account"], []).append(a)
+
+    def customer(self, alert: Dict[str, Any]) -> Dict[str, Any]:
+        return self.cust[self.acct[alert["account"]]["customer_id"]]
+
+    def window(self, alert: Dict[str, Any]):
+        end = date.fromisoformat(alert["date"]) + timedelta(days=1)
+        return end - timedelta(days=self.window_days + 1), end
+
+    def rows(self, alert: Dict[str, Any]):
+        """Returns (rows sorted by time, trimmed). Own transfers first when the list has to be cut."""
+        start, end = self.window(alert)
+        in_win = lambda x: start <= date.fromisoformat(x["timestamp"][:10]) <= end
+        own = [x for x in self.by_account.get(alert["account"], []) if in_win(x)]
+        seen = {x["id"] for x in own}
+        rows = list(own)
+        frontier, visited = {alert["account"]}, {alert["account"]}
+        for _ in range(self.depth):
+            nxt = set()
+            for acc in frontier:
+                for x in self.by_account.get(acc, []):
+                    if not in_win(x):
+                        continue
+                    other = x["to_account"] if x["from_account"] == acc else x["from_account"]
+                    if POOL.match(other) or POOL.match(acc):
+                        continue                      # a shared outside party: only the alert account's own transfers (above) include these
+                    if x["id"] not in seen:
+                        seen.add(x["id"])
+                        rows.append(x)
+                    if other not in visited:
+                        visited.add(other)
+                        nxt.add(other)
+            frontier = nxt
+        parties = {x["to_account"] if x["from_account"] == alert["account"] else x["from_account"] for x in own}
+        for party in sorted(parties):
+            earlier = [x for x in self.by_account.get(party, []) if alert["account"] in (x["from_account"], x["to_account"])
+                       and x["id"] not in seen and x["timestamp"][:10] < start.isoformat()]
+            for x in sorted(earlier, key=lambda x: x["timestamp"])[-self.hist:]:
+                seen.add(x["id"])
+                rows.append(x)
+        trimmed = len(rows) > self.max_rows
+        if trimmed:
+            keep = {x["id"] for x in sorted(rows, key=lambda x: abs((date.fromisoformat(x["timestamp"][:10]) - end).days))[: self.max_rows]}
+            rows = [x for x in rows if x["id"] in keep]
+        return sorted(rows, key=lambda x: (x["timestamp"], x["id"])), trimmed
+
+
+def table_lines(rows: List[Dict[str, Any]]) -> List[str]:
+    return ["Date | ID | From | To | Amount | Channel | Description"] + [
+        f"{x['timestamp'].replace('T', ' ')} | {x['id']} | {x['from_account']} | {x['to_account']} | {x['amount']} {x['currency']} | {x['channel']} | {x['description']}"
+        for x in rows]
+
+
+def case_documents(t: Tables, jurisdiction: str, index: Optional[CaseIndex] = None) -> List[Doc]:
+    """One file per alert. No label, pattern or reason: those live only in ground_truth, and nothing here reads them."""
     j = "us" if jurisdiction == "us" else "ca"
-    acct = {a["id"]: a for a in t["accounts"]}
-    cust = {c["id"]: c for c in t["customers"]}
-    kyc = {k["customer_id"]: k["profile"] for k in t["kyc_profiles"]}
-    key_ids = {g["alert_id"]: set(filter(None, g["key_transactions"].split(";"))) for g in t["ground_truth"]}
-    involved = {g["alert_id"]: set(filter(None, g["involved_accounts"].split(";"))) for g in t["ground_truth"]}
-    by_account: Dict[str, List[Dict[str, Any]]] = {}
-    for x in t["transactions"]:
-        for side in ("from_account", "to_account"):
-            by_account.setdefault(x[side], []).append(x)     # shared outside parties (X0xxxx) are skipped below: they touch everyone
-    tx_by_id = {x["id"]: x for x in t["transactions"]}
-    alerts_by_account: Dict[str, List[Dict[str, Any]]] = {}
-    for a in t["alerts"]:
-        alerts_by_account.setdefault(a["account"], []).append(a)
+    ix = index or CaseIndex(t)
     docs = []
     for a in t["alerts"]:
-        c = cust[acct[a["account"]]["customer_id"]]
-        end = date.fromisoformat(a["date"]) + timedelta(days=1)
-        start = end - timedelta(days=window_days + 1)
-        group = {a["account"]} | involved[a["id"]]
-        counterparties = {x for k in key_ids[a["id"]] for x in (tx_by_id[k]["from_account"], tx_by_id[k]["to_account"])} - {a["account"]}
-        seen, rows = set(), []
-        for acc in sorted(group):
-            if acc.startswith("X") and not acc.startswith("X9"):
-                continue
-            for x in by_account.get(acc, []):
-                d = date.fromisoformat(x["timestamp"][:10])
-                in_window = start <= d <= end
-                related = a["account"] in (x["from_account"], x["to_account"]) or (x["from_account"] in group and x["to_account"] in group)
-                other = x["to_account"] if x["from_account"] == a["account"] else x["from_account"]
-                history = a["account"] in (x["from_account"], x["to_account"]) and other in counterparties      # earlier dealings with the same parties
-                if ((in_window and related) or history or x["id"] in key_ids[a["id"]]) and x["id"] not in seen:
-                    seen.add(x["id"])
-                    rows.append(x)
-        rows.sort(key=lambda x: (x["timestamp"], x["id"]))
-        trimmed = len(rows) > max_rows
-        rows = [r for r in rows if r["id"] in key_ids[a["id"]]] + [r for r in rows if r["id"] not in key_ids[a["id"]]]
-        rows = sorted(rows[:max_rows], key=lambda x: (x["timestamp"], x["id"]))
-        table = ["Date | ID | From | To | Amount | Channel | Description"] + [
-            f"{x['timestamp'].replace('T', ' ')} | {x['id']} | {x['from_account']} | {x['to_account']} | {x['amount']} {x['currency']} | {x['channel']} | {x['description']}"
-            for x in rows]
-        other = [o["id"] for o in alerts_by_account.get(a["account"], []) if o["id"] != a["id"]]
+        c = ix.customer(a)
+        start, end = ix.window(a)
+        rows, trimmed = ix.rows(a)
+        other = [o["id"] for o in ix.alerts_by_account.get(a["account"], []) if o["id"] != a["id"]]
         secs = [
             Section("summary", "Summary", _p(
                 f"Alert {a['id']} fired on {a['date']} for rule {a['rule']}: {RULES[a['rule']]}.",
                 f"Account {a['account']} belongs to {c['name']} ({c['id']}). Alert amount: {a['amount']}. Risk score: {a['risk_score']}.",
                 f"Other alerts on this account: {', '.join(other) if other else 'none'}.")),
-            Section("kyc", "Customer profile", _p(kyc[c["id"]], f"Type: {c['type']}. Occupation or industry: {c['occupation']}. Country: {c['country']}.")),
+            Section("kyc", "Customer profile", _p(ix.kyc[c["id"]], f"Type: {c['type']}. Occupation or industry: {c['occupation']}. Country: {c['country']}.")),
             Section("transactions", "Transaction extract", _p(
-                f"Transfers on the alert account and the accounts it dealt with, from {start.isoformat()} to {end.isoformat()}, "
-                f"plus any earlier transfers with the same counterparties"
-                + (f" (showing {len(rows)} rows)." if trimmed else "."), *table)),
+                f"Transfers on the alert account and the accounts around it, from {start.isoformat()} to {end.isoformat()}, "
+                f"plus the last few earlier transfers with the same counterparties" + (f" (showing the {len(rows)} closest to the alert date)." if trimmed else "."),
+                *table_lines(rows))),
             Section("note", "Investigator note", _p("Decision (escalate, monitor or dismiss): ______", "Reason, with transaction IDs: ______", "Policy section: ______")),
         ]
         docs.append(Doc(f"case-{a['id']}", f"Case file {a['id']}", "case", j, secs, {"alert_id": a["id"], "account": a["account"], "customer_id": c["id"]}))

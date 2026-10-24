@@ -54,6 +54,7 @@ class _Build:
         self.primary: Dict[str, str] = {}              # customer id -> main account id
         self.owner: Dict[str, str] = {}                # account id -> customer id
         self.amt: Dict[int, float] = {}
+        self.dayof: Dict[int, int] = {}
         self._k = 0
         self._ext = 0
         self._illicit = 0
@@ -78,6 +79,7 @@ class _Build:
     def add(self, ts: datetime, src: str, dst: str, amt: float, channel: str, desc: str, cur: Optional[str] = None) -> int:
         self._k += 1
         self.amt[self._k] = round(amt, 2)
+        self.dayof[self._k] = (ts.date() - self.base).days
         self.tx.append({"_k": self._k, "timestamp": _iso(ts), "from_account": src, "to_account": dst, "amount": round(amt, 2),
                         "currency": cur or self.cur.get(src) or self.cur.get(dst, "CAD"), "channel": channel, "description": desc})
         return self._k
@@ -178,8 +180,9 @@ class _Build:
 
     def case(self, label: str, pattern: str, rule: str, key_account: str, involved: List[str], keys: List[int], reason: str,
              amount: float, day: float, score: Tuple[int, int]) -> None:
+        last = max(self.dayof[k] for k in keys)          # the alert fires on the day of the last transfer it covers
         self.cases.append({"label": label, "pattern": pattern, "rule": rule, "account": key_account, "involved": involved, "keys": keys,
-                           "reason": reason, "amount": round(amount, 2), "day": int(day), "score": self.rng.randint(*score)})
+                           "reason": reason, "amount": round(amount, 2), "day": max(int(day), last), "score": self.rng.randint(*score)})
 
     def expected_of(self, acct: str) -> float:
         c = next(x for x in self.customers if x["id"] == self.owner[acct])

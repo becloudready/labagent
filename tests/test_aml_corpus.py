@@ -141,11 +141,24 @@ def test_case_files_do_not_leak_the_answers(tables):
         assert not re.search(r"\b(label|ground[_ ]truth)\b", text, re.I)
 
 
-def test_case_files_contain_every_key_transaction(tables):
-    cases = {c.meta["alert_id"]: D.to_markdown(c) for c in D.case_documents(tables, "ca")}
-    for g in tables["ground_truth"]:
+@pytest.mark.parametrize("seed", [42, 1, 5, 9])
+def test_case_files_contain_every_key_transaction_without_reading_the_answers(seed):
+    """The extract is found like an investigator would, from the alert account outward. It must still hold every transfer the case turns on."""
+    t = get("builtin").generate(seed=seed, size="small").tables
+    blind = {k: v for k, v in t.items() if k != "ground_truth"}          # case_documents must work without the answers
+    cases = {c.meta["alert_id"]: D.to_markdown(c) for c in D.case_documents(blind, "ca")}
+    for g in t["ground_truth"]:
         for tid in g["key_transactions"].split(";"):
             assert tid in cases[g["alert_id"]], (g["alert_id"], tid)
+    assert cases == {c.meta["alert_id"]: D.to_markdown(c) for c in D.case_documents(t, "ca")}
+
+
+def test_alert_date_is_the_date_of_its_last_key_transaction(tables):
+    tx = {x["id"]: x for x in tables["transactions"]}
+    al = {a["id"]: a for a in tables["alerts"]}
+    for g in tables["ground_truth"]:
+        last = max(tx[k]["timestamp"][:10] for k in g["key_transactions"].split(";"))
+        assert al[g["alert_id"]]["date"] >= last
 
 
 def test_case_chunks_keep_transactions_as_tables_not_text(tables):
