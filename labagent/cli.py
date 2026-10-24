@@ -108,8 +108,9 @@ def main(argv=None) -> int:
     pk.add_argument("--json", action="store_true", help="Machine-readable catalog with parameters, platforms and cost tier (used by the console)")
     from .ai.rag import cli as rag_cli
     rag_cli.add_parser(sub)
-    dp = sub.add_parser("dataset", help="Package a chunk file as a versioned, checksummed snapshot (maintainers)")
-    dp.add_argument("--chunks", required=True, help="JSONL of chunks: one object per line with id, title, content and meta")
+    dp = sub.add_parser("dataset", help="Package a chunk file or a folder of tables as a versioned, checksummed snapshot (maintainers)")
+    dp.add_argument("--chunks", help="JSONL of chunks: one object per line with id, title, content and meta")
+    dp.add_argument("--tables", help="Folder of CSV/Parquet files with a provenance.json (for example from python -m labagent.packs.aml.gen)")
     dp.add_argument("--name", required=True)
     dp.add_argument("--version", required=True)
     dp.add_argument("--out", required=True, help="Output directory")
@@ -128,13 +129,19 @@ def main(argv=None) -> int:
         print(STATE_BACKEND_DIR)
         return 0
     if args.cmd == "dataset":
-        from .datasets import DatasetError, build_snapshot
+        from .datasets import DatasetError, build_snapshot, build_table_snapshot
+        if bool(args.chunks) == bool(args.tables):
+            print("error: give exactly one of --chunks or --tables", file=sys.stderr)
+            return 2
         try:
-            m = build_snapshot(Path(args.chunks), args.name, args.version, Path(args.out))
+            if args.tables:
+                m = build_table_snapshot(Path(args.tables), args.name, args.version, Path(args.out))
+            else:
+                m = build_snapshot(Path(args.chunks), args.name, args.version, Path(args.out))
         except DatasetError as e:
             print(f"error: {e}", file=sys.stderr)
             return 2
-        print(json.dumps({k: m[k] for k in ("file", "chunks", "bytes", "sha256")}, indent=2))
+        print(json.dumps({k: m[k] for k in ("file", "chunks", "bytes", "sha256") if k in m}, indent=2))
         return 0
     if args.cmd == "rag":
         return rag_cli.run(args)

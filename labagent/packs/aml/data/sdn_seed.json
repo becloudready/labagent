@@ -1,0 +1,67 @@
+{
+  "source": "OFAC Specially Designated Nationals list, https://www.treasury.gov/ofac/downloads/sdn.csv",
+  "list_date": "2026-10-21",
+  "note": "Entity names only (no individuals, addresses or identifiers). US government work, used to seed screening practice. Not a current list.",
+  "entries": [
+    {
+      "uid": "19730",
+      "name": "MAZAKA GENERAL TRADING L.L.C.",
+      "program": "TCO"
+    },
+    {
+      "uid": "19731",
+      "name": "JETLINK TEXTILES TRADING",
+      "program": "TCO"
+    },
+    {
+      "uid": "19732",
+      "name": "SEVEN SEA GOLDEN GENERAL TRADING LLC",
+      "program": "TCO"
+    },
+    {
+      "uid": "19733",
+      "name": "AYDAH TRADING LLC",
+      "program": "TCO"
+    },
+    {
+      "uid": "19734",
+      "name": "WADI AL AFRAH TRADING LLC",
+      "program": "TCO"
+    },
+    {
+      "uid": "51354",
+      "name": "CERES SHIPPING LIMITED",
+      "program": "IRAN-EO13902"
+    },
+    {
+      "uid": "51355",
+      "name": "EUNOMIA LIMITED",
+      "program": "IRAN-EO13902"
+    },
+    {
+      "uid": "51351",
+      "name": "LIGHTSHIP MANAGEMENT LTD",
+      "program": "IRAN-EO13902"
+    },
+    {
+      "uid": "51320",
+      "name": "YURIMAGUAS LTD",
+      "program": "IRAN-EO13902"
+    },
+    {
+      "uid": "11318",
+      "name": "NAFTIRAN INTERTRADE CO. LIMITED",
+      "program": "IRAN"
+    },
+    {
+      "uid": "11621",
+      "name": "INTRA CHEM TRADING GMBH",
+      "program": "IRAN"
+    },
+    {
+      "uid": "11613",
+      "name": "ASCOTEC STEEL TRADING GMBH",
+      "program": "IRAN"
+    }
+  ]
+}
