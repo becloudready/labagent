@@ -207,6 +207,21 @@ class CaseIndex:
         self.alerts_by_account: Dict[str, List[Dict[str, Any]]] = {}
         for a in t["alerts"]:
             self.alerts_by_account.setdefault(a["account"], []).append(a)
+        self._degree: Dict[str, int] = {}
+
+    def uncommon(self, party: str) -> bool:
+        """True for another customer of the credit union, or an outside party that few accounts deal with. Ordinary payees (employers,
+        shops, landlords) are dealt with by many accounts. Transfers between customers do not happen in ordinary activity."""
+        if party in self.acct:
+            return True
+        if not self._degree:
+            seen: Dict[str, set] = {}
+            for x in self.t["transactions"]:
+                for me, other in ((x["from_account"], x["to_account"]), (x["to_account"], x["from_account"])):
+                    if me not in self.acct:
+                        seen.setdefault(me, set()).add(other)
+            self._degree = {k: len(v) for k, v in seen.items()}
+        return self._degree.get(party, 0) < 8
 
     def customer(self, alert: Dict[str, Any]) -> Dict[str, Any]:
         return self.cust[self.acct[alert["account"]]["customer_id"]]

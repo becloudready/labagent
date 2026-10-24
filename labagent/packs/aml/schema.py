@@ -53,11 +53,13 @@ DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 LIST_SEP = ";"
 
 
-def write_csv(tables: Tables, out_dir: Path) -> List[Path]:
-    """One CSV per table. Fixed column order, LF line ends, UTF-8: the same input always gives the same bytes."""
+def write_csv(tables: Tables, out_dir: Path, only: Optional[List[str]] = None) -> List[Path]:
+    """One CSV per table (or just the `only` tables). Fixed column order, LF line ends, UTF-8: the same input always gives the same bytes."""
     out_dir.mkdir(parents=True, exist_ok=True)
     paths = []
     for name, cols in TABLES.items():
+        if only is not None and name not in only:
+            continue
         path = out_dir / f"{name}.csv"
         with open(path, "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=cols, lineterminator="\n")
@@ -81,9 +83,11 @@ def write_parquet(tables: Tables, out_dir: Path) -> List[Path]:
     return paths
 
 
-def read_csv(in_dir: Path) -> Tables:
+def read_csv(in_dir: Path, only: Optional[List[str]] = None) -> Tables:
     out: Tables = {}
     for name in TABLES:
+        if only is not None and name not in only:
+            continue
         with open(in_dir / f"{name}.csv", newline="", encoding="utf-8") as f:
             out[name] = list(csv.DictReader(f))
     return out
