@@ -64,6 +64,7 @@ labagent = [
   "packs/*/sources/*.json",
   "packs/*/app/*",
   "packs/*/app/static/*",
+  "packs/*/tutorial/notebooks/*.py",
 ]
 
 [tool.pytest.ini_options]

@@ -203,5 +203,11 @@ def test_the_guess_guard_stays_correct_as_more_packs_exist():
     from labagent.nl import _distinctive_tokens
     d = _distinctive_tokens(PACKS["rag-lakebase"], PACKS)
     assert "rag" not in d and "lakebase" in d
-    assert {"sec", "filings"} <= _distinctive_tokens(PACKS["rag-sec-filings"], PACKS)          # a snapshot/live pair still counts
+    sec = _distinctive_tokens(PACKS["rag-sec-filings"], PACKS)
+    assert "filings" in sec and "sec" not in sec               # 'sec' is now in three pack names (filings, live, tutorial): too shared to back a guess
+    assert "tutorial" in _distinctive_tokens(PACKS["rag-sec-tutorial"], PACKS)
+    from labagent.nl import literal_pack
+    assert literal_pack("deploy rag-sec on databricks", PACKS).id == "rag-sec-filings"        # naming the alias outright still wins
+    assert literal_pack("start the rag-tutorial notebooks", PACKS).id == "rag-sec-tutorial"
+    assert literal_pack("launch rag-sec-filings-live for me", PACKS).id == "rag-sec-filings-live"
     assert {"agent", "databricks"} & _distinctive_tokens(PACKS["db-agent"], PACKS)
