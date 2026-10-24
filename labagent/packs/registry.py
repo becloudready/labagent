@@ -7,11 +7,10 @@ from .base import Pack
 
 
 def builtin() -> Dict[str, Pack]:
-    from .rag.pack import RagLakebase, RagSecFilings, RagSecFilingsLive
     from .rag.tutorial_pack import RagSecTutorial
     from .db_agent.pack import DbAgent
     from .rag_ide.pack import RagIde
-    return {p.id: p for p in (RagLakebase(), RagSecFilings(), RagSecFilingsLive(), RagSecTutorial(), DbAgent(), RagIde())}
+    return {p.id: p for p in (RagSecTutorial(), DbAgent(), RagIde())}
 
 
 def all_packs() -> Dict[str, Pack]:
@@ -28,6 +27,10 @@ def all_packs() -> Dict[str, Pack]:
     return found
 
 
+# Packs that no longer exist, and what replaced them. Without this, the old alias `rag-sec` would silently match the new pack by prefix.
+REMOVED = {t: "rag-sec-tutorial" for t in ("rag-lakebase", "rag-demo", "rag-sec-filings", "rag-sec", "sec-filings", "rag-sec-filings-live")}
+
+
 def get(pack_id: str) -> Pack:
     packs = all_packs()
     if pack_id not in packs:
@@ -39,6 +42,9 @@ def resolve(token: str) -> Pack:
     """Exact id, then alias, then a unique prefix. Ambiguity is an error, never a guess."""
     packs = all_packs()
     t = token.strip().lower()
+    if t in REMOVED:
+        raise KeyError(f"the pack {token!r} was removed. Use '{REMOVED[t]}': it uploads notebooks that build the same RAG step by step "
+                       f"(labagent launch {REMOVED[t]} --name demo)")
     if t in packs:
         return packs[t]
     by_alias = [p for p in packs.values() if t in [a.lower() for a in p.aliases]]

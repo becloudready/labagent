@@ -44,19 +44,6 @@ class Dbx:
         out = self.text(*args, *extra, "-o", "json")
         return json.loads(out) if out.strip() else {}
 
-    def api(self, method: str, path: str, body: Any = None, retries: int = 6) -> Any:
-        """Rate limits are normal on Free Edition foundation-model endpoints: back off 2s, 4s, 8s... then give up."""
-        extra = ["--json", json.dumps(body)] if body is not None else []
-        for attempt in range(retries + 1):
-            try:
-                out = self.text("api", method, path, *extra)
-                break
-            except PackError as e:
-                if attempt == retries or not any(k in str(e) for k in ("REQUEST_LIMIT_EXCEEDED", "RATE_LIMIT", "429")):
-                    raise
-                self._sleep(min(2 ** (attempt + 1), 30))
-        return json.loads(out) if out.strip() else {}
-
     def profiles(self) -> list:
         """Configured CLI profiles with their host and whether the login is still valid."""
         saved, self.profile = self.profile, None

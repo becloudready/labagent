@@ -136,7 +136,7 @@ print(f"\nretrieval hit rate: {rate:.2f} on {len(applicable)} questions that the
 # MAGIC %md
 # MAGIC ## 5. The quality gate
 # MAGIC
-# MAGIC The one-command version of this tutorial refuses to deploy an app whose hit rate is below **0.6**. That rule is the point: a gate turns "it seems to work" into a number you can enforce.
+# MAGIC A deployment can refuse to publish an app whose hit rate is below **0.6**. That rule is the point: a gate turns "it seems to work" into a number you can enforce.
 
 # COMMAND ----------
 

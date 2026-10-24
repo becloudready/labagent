@@ -4,7 +4,7 @@
 # MAGIC
 # MAGIC **Time:** about 10 minutes. This notebook is optional: notebooks 00 to 05 already built a working RAG system.
 # MAGIC
-# MAGIC A **Databricks App** is a small web service that Databricks hosts for you, behind your workspace login. The app code (a FastAPI service and a web page) was uploaded next to these notebooks in the `app` folder. You will not write it. You will do the four things the one-command version automates:
+# MAGIC A **Databricks App** is a small web service that Databricks hosts for you, behind your workspace login. The app code (a FastAPI service and a web page) was uploaded next to these notebooks in the `app` folder. You will not write it. You will do the four things a deployment script would automate:
 # MAGIC
 # MAGIC 1. Create the app and tell it which models it may call.
 # MAGIC 2. Give the app's own identity a **read-only** database role. The app never uses your credentials.

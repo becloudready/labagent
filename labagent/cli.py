@@ -50,10 +50,10 @@ KNOWN = {"run", "packs", "rag", "dataset", "launch", "destroy", "bootstrap-path"
 
 
 def _nl_main(argv) -> int:
-    """labagent "deploy rag-sec on databricks": translate with a small model, confirm, then run the real command."""
+    """labagent "deploy rag-tutorial on databricks": translate with a small model, confirm, then run the real command."""
     from . import nl
     from .packs import registry
-    q = argparse.ArgumentParser(prog="labagent", description="Plain-English front end: labagent \"deploy rag-sec on databricks\"")
+    q = argparse.ArgumentParser(prog="labagent", description="Plain-English front end: labagent \"deploy rag-tutorial on databricks\"")
     q.add_argument("text", nargs="+")
     q.add_argument("--endpoint", help=f"OpenAI-compatible base URL (default {nl.DEFAULT_URL}, or LABAGENT_LLM_URL)")
     q.add_argument("--model", help=f"Model (default {nl.DEFAULT_MODEL}, or LABAGENT_LLM_MODEL)")
@@ -105,7 +105,7 @@ def main(argv=None) -> int:
     from .ai.rag import cli as rag_cli
     rag_cli.add_parser(sub)
     dp = sub.add_parser("dataset", help="Package a chunk file as a versioned, checksummed snapshot (maintainers)")
-    dp.add_argument("--chunks", required=True, help="JSONL of chunks, e.g. ~/.labagent/cache/rag-sec-filings/<name>.jsonl")
+    dp.add_argument("--chunks", required=True, help="JSONL of chunks: one object per line with id, title, content and meta")
     dp.add_argument("--name", required=True)
     dp.add_argument("--version", required=True)
     dp.add_argument("--out", required=True, help="Output directory")

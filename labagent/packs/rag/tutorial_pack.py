@@ -1,8 +1,8 @@
-"""rag-sec-tutorial: the one-command RAG lab, as notebooks a student runs step by step.
+"""rag-sec-tutorial: the SEC filings RAG lab, as notebooks a student runs step by step.
 
-`rag-sec-filings` builds everything for you. This pack builds nothing. It uploads nine notebooks (setup, data, embeddings, pgvector,
+This pack builds nothing itself. It uploads nine notebooks (setup, data, embeddings, pgvector,
 search, answer and evaluate, deploy the app, clean up, plus one shared helper) and the app code into your Databricks workspace.
-The student then runs them in order and learns what each step does. Notebook 06 deploys the same app the one-command pack deploys.
+The student then runs them in order and learns what each step does. Notebook 06 deploys the finished app from the code uploaded next to the notebooks.
 
 Nothing is created in Databricks except the uploaded folder. The notebooks create and remove the database and the app themselves.
 """
@@ -20,8 +20,8 @@ from ..base import Pack, PackContext, PackError, Param, Step
 from ..databricks.auth import login as login_shared
 from ..databricks.auth import workspace_host
 from ..databricks.cli import Dbx
+from ..databricks.models import CHAT_RE, EMBED_RE
 from . import sources as src_mod
-from .pack import CHAT_RE, EMBED_RE
 
 HERE = Path(__file__).parent
 NOTEBOOKS = HERE / "tutorial" / "notebooks"

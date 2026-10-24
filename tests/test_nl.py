@@ -15,57 +15,57 @@ def ask(text, reply):
 
 
 def test_the_example_request_becomes_the_right_command():
-    plan = ask("Run and deploy rag-sec in databricks", {"action": "launch", "pack": "rag-sec", "name": None, "params": {}})
-    assert plan.command_line() == "labagent launch rag-sec-filings --name sec"          # alias resolved, default name applied
+    plan = ask("Run and deploy rag-tutorial in databricks", {"action": "launch", "pack": "rag-tutorial", "name": None, "params": {}})
+    assert plan.command_line() == "labagent launch rag-sec-tutorial --name demo"          # alias resolved, default name applied
 
 
 def test_tolerates_code_fences_and_chatter_around_the_json():
-    raw = 'Sure! ```json\n{"action": "launch", "pack": "rag-sec-filings", "name": null, "params": {}}\n``` hope that helps'
-    assert ask("deploy rag-sec", raw).pack == "rag-sec-filings"
+    raw = 'Sure! ```json\n{"action": "launch", "pack": "rag-sec-tutorial", "name": null, "params": {}}\n``` hope that helps'
+    assert ask("deploy rag-tutorial", raw).pack == "rag-sec-tutorial"
 
 
 def test_name_and_params_are_read_from_the_sentence_not_from_the_model():
-    plan = ask("deploy rag-sec called team1 with profile MYPROFILE",
-               {"action": "launch", "pack": "rag-sec", "name": "prod", "params": {"top_k": "9", "profile": "evil"}})
+    plan = ask("deploy rag-tutorial called team1 with profile MYPROFILE",
+               {"action": "launch", "pack": "rag-tutorial", "name": "prod", "params": {"dataset": "evil", "profile": "evil"}})
     assert plan.name == "team1" and plan.params == {"profile": "MYPROFILE"}             # the model's name and params are ignored
-    bare = ask("deploy rag-sec", {"action": "launch", "pack": "rag-sec", "name": "prod", "params": {"profile": "x"}})
-    assert bare.name == "sec" and bare.params == {}
-    live = ask("launch rag-sec-filings-live with tickers AAPL,MSFT", {"action": "launch", "pack": "rag-sec-filings-live"})
-    assert live.params == {"tickers": "AAPL,MSFT"}                                       # 'filings' inside the pack id is not a parameter
+    bare = ask("deploy rag-tutorial", {"action": "launch", "pack": "rag-tutorial", "name": "prod", "params": {"profile": "x"}})
+    assert bare.name == "demo" and bare.params == {}
+    ide = ask("launch rag-ide called cohort1 with learners 5 and platform ec2", {"action": "launch", "pack": "rag-ide"})
+    assert ide.name == "cohort1" and ide.params == {"learners": "5", "platform": "ec2"}       # several parameters, read by exact rules
 
 
 def test_synonym_actions_are_normalised_and_the_sentence_has_the_last_word():
-    assert ask("create rag-sec", {"action": "create", "pack": "rag-sec"}).action == "launch"
-    assert ask("remove rag-sec", {"action": "remove", "pack": "rag-sec"}).action == "destroy"
-    assert ask("deploy rag-sec", {"action": "gibberish", "pack": "rag-sec"}).action == "launch"
+    assert ask("create rag-tutorial", {"action": "create", "pack": "rag-tutorial"}).action == "launch"
+    assert ask("remove rag-tutorial", {"action": "remove", "pack": "rag-tutorial"}).action == "destroy"
+    assert ask("deploy rag-tutorial", {"action": "gibberish", "pack": "rag-tutorial"}).action == "launch"
 
 
 def test_a_pack_the_model_guessed_must_be_backed_by_the_sentence():
     with pytest.raises(nl.NLError, match="which pack"):
-        ask("deploy it", {"action": "launch", "pack": "rag-lakebase"})
+        ask("deploy it", {"action": "launch", "pack": "rag-sec-tutorial"})
     with pytest.raises(nl.NLError, match="which pack"):
-        ask("run and start the rag app", {"action": "launch", "pack": "rag-lakebase"})
-    assert ask("start the demo rag", {"action": "launch", "pack": "rag-lakebase"}).pack == "rag-lakebase"
-    assert ask("spin up the sec filings rag app", {"action": "launch", "pack": "rag-sec-filings"}).pack == "rag-sec-filings"
+        ask("run and start the rag app", {"action": "launch", "pack": "rag-sec-tutorial"})        # 'rag' and 'app' are too generic to back a guess
+    assert ask("start the tutorial notebooks", {"action": "launch", "pack": "rag-sec-tutorial"}).pack == "rag-sec-tutorial"
+    assert ask("spin up the text to sql agent", {"action": "launch", "pack": "db-agent"}).pack == "db-agent"
 
 
 def test_compound_requests_are_refused_not_half_executed():
     with pytest.raises(nl.NLError, match="two things"):
-        ask("deploy rag-sec and then delete everything", {"action": "launch", "pack": "rag-sec"})
+        ask("deploy rag-tutorial and then delete everything", {"action": "launch", "pack": "rag-tutorial"})
 
 
 def test_a_pack_the_user_typed_beats_the_models_pick():
-    plan = ask("deploy rag-sec", {"action": "launch", "pack": "rag-lakebase"})
-    assert plan.pack == "rag-sec-filings" and plan.warnings
+    plan = ask("deploy rag-tutorial", {"action": "launch", "pack": "db-agent"})
+    assert plan.pack == "rag-sec-tutorial" and plan.warnings
 
 
 def test_destroy_needs_an_explicit_destructive_request():
     with pytest.raises(nl.NLError, match="does not ask to delete"):
-        ask("deploy rag-sec", {"action": "destroy", "pack": "rag-sec", "name": None, "params": {}})
+        ask("deploy rag-tutorial", {"action": "destroy", "pack": "rag-tutorial", "name": None, "params": {}})
     with pytest.raises(nl.NLError, match="sounds like a deletion"):
-        ask("tear down rag-sec", {"action": "launch", "pack": "rag-sec", "name": None, "params": {}})
-    ok = ask("delete rag-sec", {"action": "destroy", "pack": "rag-sec", "name": None, "params": {}})
-    assert ok.action == "destroy" and ok.command_line() == "labagent destroy rag-sec-filings --name sec"
+        ask("tear down rag-tutorial", {"action": "launch", "pack": "rag-tutorial", "name": None, "params": {}})
+    ok = ask("delete rag-tutorial", {"action": "destroy", "pack": "rag-tutorial", "name": None, "params": {}})
+    assert ok.action == "destroy" and ok.command_line() == "labagent destroy rag-sec-tutorial --name demo"
 
 
 def test_unknown_pack_ambiguous_pack_and_junk_are_refused():
@@ -74,14 +74,14 @@ def test_unknown_pack_ambiguous_pack_and_junk_are_refused():
     with pytest.raises(nl.NLError, match="ambiguous"):
         ask("deploy rag", {"action": "launch", "pack": "rag", "name": None, "params": {}})
     with pytest.raises(nl.NLError, match="usable command"):
-        ask("deploy rag-sec", "I cannot do that")
+        ask("deploy rag-tutorial", "I cannot do that")
     with pytest.raises(nl.NLError, match="launch, destroy or list"):
-        ask("rag-sec please", {"action": "rm -rf /", "pack": "rag-sec"})          # no verb in the sentence, nonsense from the model
-    assert ask("deploy rag-sec", {"action": "rm -rf /", "pack": "rag-sec"}).command_line() == "labagent launch rag-sec-filings --name sec"
+        ask("rag-tutorial please", {"action": "rm -rf /", "pack": "rag-tutorial"})          # no verb in the sentence, nonsense from the model
+    assert ask("deploy rag-tutorial", {"action": "rm -rf /", "pack": "rag-tutorial"}).command_line() == "labagent launch rag-sec-tutorial --name demo"
 
 
 def test_shell_metacharacters_are_quoted_in_the_displayed_command():
-    plan = ask("deploy rag-sec with profile x&y", {"action": "launch", "pack": "rag-sec"})
+    plan = ask("deploy rag-tutorial with profile x&y", {"action": "launch", "pack": "rag-tutorial"})
     assert plan.argv()[-1] == "profile=x&y" and "'profile=x&y'" in plan.command_line()
 
 
@@ -90,12 +90,12 @@ def test_list_needs_no_pack():
 
 
 def test_prompt_is_small_lists_real_packs_and_asks_only_for_action_and_pack():
-    msgs = nl.build_messages("deploy rag-sec", PACKS)
+    msgs = nl.build_messages("deploy rag-tutorial", PACKS)
     sys_prompt = msgs[0]["content"]
-    assert "rag-sec-filings" in sys_prompt and "rag-sec" in sys_prompt and "rag-lakebase" in sys_prompt
-    assert "top_k" not in sys_prompt and "profile" not in sys_prompt            # parameters are not the model's job
+    assert "rag-sec-tutorial" in sys_prompt and "rag-tutorial" in sys_prompt and "db-agent" in sys_prompt and "rag-ide" in sys_prompt
+    assert "idle_minutes" not in sys_prompt and "profile" not in sys_prompt            # parameters are not the model's job
     assert len(sys_prompt) < 2500                                               # short enough for a 0.5b model to follow
-    assert msgs[1]["content"] == "Request: deploy rag-sec"
+    assert msgs[1]["content"] == "Request: deploy rag-tutorial"
 
 
 class Resp(io.BytesIO):
@@ -152,7 +152,7 @@ def test_settings_precedence_and_locality(monkeypatch):
 @pytest.fixture
 def wired(monkeypatch):
     ran = []
-    monkeypatch.setattr(nl, "call_llm", lambda *a, **k: json.dumps({"action": "launch", "pack": "rag-sec", "name": None, "params": {}}))
+    monkeypatch.setattr(nl, "call_llm", lambda *a, **k: json.dumps({"action": "launch", "pack": "rag-tutorial", "name": None, "params": {}}))
     real = cli.main
 
     def fake_main(argv=None):
@@ -165,49 +165,51 @@ def wired(monkeypatch):
 
 
 def test_bare_sentence_goes_to_the_translator_and_yes_runs_it(wired, capsys):
-    assert cli.main(["Run and deploy rag-sec in databricks", "--yes"]) == 0
-    assert wired == [["launch", "rag-sec-filings", "--name", "sec"]]
+    assert cli.main(["Run and deploy rag-tutorial in databricks", "--yes"]) == 0
+    assert wired == [["launch", "rag-sec-tutorial", "--name", "demo"]]
     assert "Interpreted as" in capsys.readouterr().err
 
 
 def test_print_only_and_non_interactive_do_not_execute(wired, capsys):
-    assert cli.main(["deploy rag-sec", "--print-only"]) == 0 and wired == []
-    assert cli.main(["deploy rag-sec"]) == 2 and wired == []                      # no TTY and no --yes
+    assert cli.main(["deploy rag-tutorial", "--print-only"]) == 0 and wired == []
+    assert cli.main(["deploy rag-tutorial"]) == 2 and wired == []                      # no TTY and no --yes
     assert "--yes" in capsys.readouterr().err
 
 
 def test_destroy_requires_typing_the_name(monkeypatch, wired):
-    monkeypatch.setattr(nl, "call_llm", lambda *a, **k: json.dumps({"action": "destroy", "pack": "rag-sec", "name": None, "params": {}}))
+    monkeypatch.setattr(nl, "call_llm", lambda *a, **k: json.dumps({"action": "destroy", "pack": "rag-tutorial", "name": None, "params": {}}))
     monkeypatch.setattr("sys.stdin", type("T", (), {"isatty": lambda s: True})())
     monkeypatch.setattr("builtins.input", lambda prompt="": "y")
-    assert cli.main(["delete rag-sec"]) == 1 and wired == []                      # 'y' is not the name
-    monkeypatch.setattr("builtins.input", lambda prompt="": "sec")
-    assert cli.main(["delete rag-sec"]) == 0 and wired == [["destroy", "rag-sec-filings", "--name", "sec"]]
+    assert cli.main(["delete rag-tutorial"]) == 1 and wired == []                      # 'y' is not the name
+    monkeypatch.setattr("builtins.input", lambda prompt="": "demo")
+    assert cli.main(["delete rag-tutorial"]) == 0 and wired == [["destroy", "rag-sec-tutorial", "--name", "demo"]]
 
 
 def test_known_subcommands_still_work_and_aliases_resolve(capsys):
     assert cli.main(["packs"]) == 0
-    assert cli.main(["launch", "rag-sec", "--dry-run", "--output", "-"]) == 0       # alias + default name, no --name needed
-    assert '"cohort": "sec"' in capsys.readouterr().out
+    assert cli.main(["launch", "rag-tutorial", "--dry-run", "--output", "-"]) == 0       # alias + default name, no --name needed
+    assert '"cohort": "demo"' in capsys.readouterr().out
 
 
 def test_unreachable_model_gives_an_actionable_error(monkeypatch, capsys):
     def boom(*a, **k):
         raise nl.NLError("cannot reach the model endpoint at http://localhost:11434/v1. Run: ollama serve")
     monkeypatch.setattr(nl, "call_llm", boom)
-    assert cli.main(["deploy rag-sec"]) == 2 and "ollama serve" in capsys.readouterr().err
+    assert cli.main(["deploy rag-tutorial"]) == 2 and "ollama serve" in capsys.readouterr().err
 
 
 def test_the_guess_guard_stays_correct_as_more_packs_exist():
-    """Regression: adding a pack made 'rag' look distinctive. A word shared by 3+ packs never backs a model's guess."""
-    from labagent.nl import _distinctive_tokens
-    d = _distinctive_tokens(PACKS["rag-lakebase"], PACKS)
-    assert "rag" not in d and "lakebase" in d
-    sec = _distinctive_tokens(PACKS["rag-sec-filings"], PACKS)
-    assert "filings" in sec and "sec" not in sec               # 'sec' is now in three pack names (filings, live, tutorial): too shared to back a guess
-    assert "tutorial" in _distinctive_tokens(PACKS["rag-sec-tutorial"], PACKS)
-    from labagent.nl import literal_pack
-    assert literal_pack("deploy rag-sec on databricks", PACKS).id == "rag-sec-filings"        # naming the alias outright still wins
-    assert literal_pack("start the rag-tutorial notebooks", PACKS).id == "rag-sec-tutorial"
-    assert literal_pack("launch rag-sec-filings-live for me", PACKS).id == "rag-sec-filings-live"
+    """Regression: adding a pack once made 'rag' look distinctive. A word shared by 3+ packs never backs a model's guess."""
+    from labagent.nl import _distinctive_tokens, literal_pack
+    tut = _distinctive_tokens(PACKS["rag-sec-tutorial"], PACKS)
+    assert "rag" not in tut and {"tutorial", "notebooks"} <= tut
     assert {"agent", "databricks"} & _distinctive_tokens(PACKS["db-agent"], PACKS)
+    assert literal_pack("deploy rag-tutorial on databricks", PACKS).id == "rag-sec-tutorial"      # naming the alias outright still wins
+    assert literal_pack("launch rag-ide for me", PACKS).id == "rag-ide"
+    assert literal_pack("start the rag-tutorial notebooks", PACKS).id == "rag-sec-tutorial"
+
+
+def test_removed_pack_names_point_to_the_tutorial_instead_of_guessing():
+    for old in ("rag-sec", "rag-sec-filings", "rag-lakebase", "rag-sec-filings-live"):
+        with pytest.raises(KeyError, match="was removed.*rag-sec-tutorial"):
+            registry.resolve(old)

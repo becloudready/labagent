@@ -4,7 +4,7 @@
 # MAGIC
 # MAGIC **Time:** about 5 minutes. **Cost:** none on Databricks Free Edition.
 # MAGIC
-# MAGIC You will build a research assistant that answers questions from real SEC annual reports (Form 10-K) and cites its sources. This tutorial builds it one step at a time. The same system can be launched with one command (`labagent launch rag-sec-filings`). Here you do each step yourself, so you see what that command automates.
+# MAGIC You will build a research assistant that answers questions from real SEC annual reports (Form 10-K) and cites its sources. This tutorial builds it one step at a time, so you see what each part does and why it is there.
 # MAGIC
 # MAGIC ```
 # MAGIC  question --> [embedding model] --> vector --> [Lakebase: Postgres + pgvector] --> best passages

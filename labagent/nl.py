@@ -56,12 +56,13 @@ def build_messages(text: str, packs: Dict[str, Any]) -> List[Dict[str, str]]:
     model's job (they are read from the sentence by exact rules in `extract_args`), so it cannot invent them."""
     plist = sorted(packs.values(), key=lambda x: x.id)
     lines = [f"- {p.id}" + (f" (alias: {', '.join(p.aliases)})" if p.aliases else "") + f": {p.summary.split('.')[0]}" for p in plist]
+    rag = next((p.id for p in plist if "tutorial" in p.id), plist[0].id)       # what a vague "the rag app" request most likely means
     shots = []
     for p in plist:
         short = p.aliases[0] if p.aliases else p.id
         shots += [(f"deploy {short}", "launch", p.id), (f"delete {p.id}", "destroy", p.id)]
-    shots += [("run and start the rag app on databricks", "launch", plist[0].id), ("what can you deploy?", "list", None),
-              ("show me the available packs", "list", None), ("tear down everything for the sec rag", "destroy", next((p.id for p in plist if "sec" in p.id), plist[0].id))]
+    shots += [("run and start the rag app on databricks", "launch", rag), ("what can you deploy?", "list", None),
+              ("show me the available packs", "list", None), ("tear down everything for the sec rag", "destroy", rag)]
     ex = "\n".join(f"Request: {q}\n" + json.dumps({"action": a, "pack": k}) for q, a, k in shots)
     system = ("Convert the request to JSON: {\"action\": ..., \"pack\": ...}. Reply with JSON only.\n"
               "action is launch (run, deploy, start, create, build), destroy (delete, remove, tear down) or list (show what exists). "
@@ -190,7 +191,7 @@ def validate(raw: str, text: str, resolve: Callable[[str], Any], packs: Optional
     action = _canonical_action(str(obj.get("action") or ""), text)
     if action not in ACTIONS:
         raise NLError(f"I could not tell what to do (got '{action or 'nothing'}'). Say launch, destroy or list, e.g. "
-                      "\"deploy rag-sec\"")
+                      "\"deploy rag-tutorial\"")
     wants_destroy, wants_launch = bool(DESTROY_WORDS.search(text)), bool(LAUNCH_WORDS.search(text))
     if wants_destroy and wants_launch:
         raise NLError("that asks for two things at once (create and delete). One action at a time: run them as two commands")
@@ -198,7 +199,7 @@ def validate(raw: str, text: str, resolve: Callable[[str], Any], packs: Optional
         raise NLError("the model chose 'destroy' but your request does not ask to delete anything. Nothing was run")
     if action == "launch" and wants_destroy:
         raise NLError("your request sounds like a deletion but the model chose 'launch'. Nothing was run: "
-                      "say it explicitly, e.g. \"destroy rag-sec\"")
+                      "say it explicitly, e.g. \"destroy rag-tutorial\"")
     if action == "list":
         return Plan("list")
     pack, warnings = None, []
@@ -215,10 +216,10 @@ def validate(raw: str, text: str, resolve: Callable[[str], Any], packs: Optional
             raise NLError(str(e).strip("\"'")) from e
         words = set(re.split(r"[^a-z0-9]+", text.lower()))
         if packs and not (_distinctive_tokens(pack, packs) & words):
-            raise NLError("I could not tell which pack you mean (the model guessed). Name it, e.g. \"deploy rag-sec\", "
+            raise NLError("I could not tell which pack you mean (the model guessed). Name it, e.g. \"deploy rag-tutorial\", "
                           "or run 'labagent packs'")
     if pack is None:
-        raise NLError("which pack? Run 'labagent packs' to see them, e.g. \"deploy rag-sec\"")
+        raise NLError("which pack? Run 'labagent packs' to see them, e.g. \"deploy rag-tutorial\"")
     args = extract_args(text, pack)
     plan = Plan(action, pack.id, args["name"] or pack.default_name or None, args["params"], warnings)
     if not plan.name:
@@ -231,7 +232,7 @@ def translate(text: str, packs: Dict[str, Any], resolve: Callable[[str], Any], u
               chat: Optional[Callable[..., str]] = None) -> Plan:
     text = " ".join(text.split())
     if not text:
-        raise NLError("say what you want, e.g. labagent \"deploy rag-sec on databricks\"")
+        raise NLError("say what you want, e.g. labagent \"deploy rag-tutorial on databricks\"")
     chat = chat or call_llm          # looked up at call time so callers and tests can substitute it
     return validate(chat(url, model, build_messages(text, packs), api_key), text, resolve, packs)
 

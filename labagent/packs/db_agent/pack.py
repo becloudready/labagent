@@ -23,7 +23,7 @@ from ..databricks import pg as pgmod
 from ..databricks.auth import login, workspace_host
 from ..databricks.cli import Dbx
 from ..gitsrc import clone_pinned
-from ..rag.pack import CHAT_RE, EMBED_RE
+from ..databricks.models import CHAT_RE, EMBED_RE
 
 REPO = "https://github.com/db-agent/db-agent"
 PINNED = "eef0a308d052b6bdd00fdfec7ee1c9a61c01426f"        # reviewed commit; change it deliberately (see docs/packs.md)

@@ -176,9 +176,10 @@ def launch(fake, **params):
     return env, "\n".join(lines)
 
 
-def test_registered_with_aliases_and_the_existing_packs_still_resolve():
+def test_registered_with_aliases_and_the_old_one_click_names_are_refused():
     assert registry.resolve("rag-sec-tutorial").id == "rag-sec-tutorial" and registry.resolve("rag-tutorial").id == "rag-sec-tutorial"
-    assert registry.resolve("rag-sec").id == "rag-sec-filings"                       # an existing alias must not change meaning
+    with pytest.raises(KeyError, match="was removed"):
+        registry.resolve("rag-sec")                         # an old alias must not silently match the new pack by prefix
 
 
 def test_launch_uploads_nine_filled_in_notebooks_and_the_app(tmp_path):

@@ -2,7 +2,7 @@
 
 Shipped: ChromaAdapter (default, embedded, free), MemoryAdapter (no dependencies), QdrantAdapter (remote or local).
 Pinecone and pgvector fit the same four methods. For managed pgvector on Lakebase use the pack instead:
-`labagent launch rag-sec-filings`.
+`labagent launch rag-sec-tutorial`.
 """
 import math
 import uuid

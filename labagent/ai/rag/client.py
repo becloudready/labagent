@@ -5,7 +5,7 @@
     print(client.query("What is a vector database?").answer)
 
 How it connects to labagent: `labagent rag init` scaffolds a project that uses this client, `labagent rag serve` shows
-it in a browser, and the Databricks packs (`labagent launch rag-sec-filings`) deploy the same pipeline to Lakebase.
+it in a browser, and the Databricks tutorial (`labagent launch rag-sec-tutorial`) builds the same pipeline on Lakebase.
 """
 import asyncio
 import re

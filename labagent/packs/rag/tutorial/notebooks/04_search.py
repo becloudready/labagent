@@ -37,7 +37,7 @@ with pg() as cx:
     cx.execute(f"CREATE INDEX IF NOT EXISTS chunks_embedding_hnsw ON {SCHEMA}.chunks USING hnsw (embedding vector_cosine_ops)")
     cx.execute(f"CREATE INDEX IF NOT EXISTS chunks_tsv ON {SCHEMA}.chunks USING gin (tsv)")
     cx.execute(f"CREATE INDEX IF NOT EXISTS chunks_meta ON {SCHEMA}.chunks USING gin (meta jsonb_path_ops)")
-    for name, ddl in cx.execute("SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = %s ORDER BY 1", (SCHEMA,)).fetchall():
+    for (name,) in cx.execute("SELECT indexname FROM pg_indexes WHERE schemaname = %s ORDER BY 1", (SCHEMA,)).fetchall():
         print(name)
 
 # COMMAND ----------
