@@ -436,9 +436,9 @@ class _Build:
     def profile(self, c: Dict[str, Any]) -> str:
         cur = self.cur[self.primary[c["id"]]]
         if c["type"] == "business":
-            who = f"{c['name']} is a {c['occupation']} business in {N.COUNTRY_NAMES.get(c['country'], c['country'])}."
+            who = f"{c['name']} is {'an' if c['occupation'][0] in 'aeiou' else 'a'} {c['occupation']} business in {N.COUNTRY_NAMES.get(c['country'], c['country'])}."
         else:
-            job = {"student": "is a student", "retired": "is retired"}.get(c["occupation"], f"works as a {c['occupation']}")
+            job = {"student": "is a student", "retired": "is retired"}.get(c["occupation"], f"works as {'an' if c['occupation'][0] in 'aeiou' else 'a'} {c['occupation']}")
             who = f"{c['name']} lives in {N.COUNTRY_NAMES.get(c['country'], c['country'])} and {job}."
         return (f"{who} Customer since {c['onboarding_date']}. Expects about {c['expected_monthly_activity']:,} {cur} of deposits each month. "
                 f"Risk rating: {c['risk_rating']}.")

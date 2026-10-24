@@ -50,8 +50,16 @@ def build_snapshot(chunks_path: Path, name: str, version: str, out_dir: Path, so
     filings = {}
     for r in rows:
         m = r["meta"]
-        if "url" in m:
+        if "url" in m and "ticker" in m:
             filings[m["url"]] = {k: m.get(k) for k in ("ticker", "company", "form", "fiscal_year", "filed", "url")}
+    sources = sorted({r["meta"]["source"] for r in rows if r["meta"].get("source")})
+    if sources:      # chunks that name their source (the AML corpus) must come from sources that may be redistributed
+        from .packs.aml.licences import assert_redistributable
+        try:
+            assert_redistributable(sources)
+        except Exception as e:
+            data.unlink(missing_ok=True)
+            raise DatasetError(str(e)) from e
     manifest = {
         "name": name, "version": version, "source": source, "built": built or date.today().isoformat(),
         "labagent": __version__, "chunks": len(rows), "file": data.name, "sha256": sha256_file(data), "bytes": data.stat().st_size,
@@ -59,6 +67,8 @@ def build_snapshot(chunks_path: Path, name: str, version: str, out_dir: Path, so
         "filings": sorted(filings.values(), key=lambda f: (f["ticker"], f["fiscal_year"])),
         "items": sorted({r["meta"].get("item") for r in rows if r["meta"].get("item")}),
     }
+    if sources:
+        manifest["sources"] = sources
     (out_dir / f"{stem}.manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     (out_dir / "SHA256SUMS").write_text(f"{manifest['sha256']}  {data.name}\n")
     return manifest
