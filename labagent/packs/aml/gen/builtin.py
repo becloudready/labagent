@@ -261,7 +261,7 @@ class _Build:
                 if x not in involved:
                     involved.append(x)
         span = max(o for o, *_ in legs) + 1
-        moved = sum(a for *_, a in legs)
+        moved = round(sum(self.amt[k] for k in keys), 2)       # the alert amount is exactly the sum of the transfers it covers
         ratio = moved / max(self.expected_of(key_account), 1.0)
         self.case("escalate", pattern, rule, key_account, involved, keys,
                   f"{len(keys)} transfers moved about {int(moved):,} across {len(involved)} accounts in {span} days, in a {PROSE.get(pattern, pattern)} shape. "

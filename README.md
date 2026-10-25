@@ -35,8 +35,19 @@ labagent destroy rag-sec-tutorial --name demo    # removes the uploaded folder
 | `rag-sec-tutorial` | Nine notebooks that build RAG on a pinned SEC 10-K dataset one step at a time: embeddings, pgvector, hybrid search, filters, citations, an evaluation gate, and the deployed app. Each ends with a check cell | Databricks Free Edition |
 | `db-agent` | [db-agent](https://github.com/db-agent/db-agent) text-to-SQL over a Databricks sample dataset, pinned commit | Databricks Free Edition |
 | `rag-ide` | A private browser VS Code per learner with the RAG lab and notebooks | Modal, EC2 or local Docker |
+| `aml` | A synthetic anti-money laundering lab with an answer key: a RAG lab for developers (`mode=rag`) and a Microsoft 365 Copilot lab for staff (`mode=copilot`), for Canada or the US. [Guide](docs/aml.md) | Your machine, no cloud account |
 
 Free Edition limits apply (one Lakebase project, three apps). Details: [docs/packs.md](docs/packs.md).
+
+## AML lab (synthetic data, RAG and Copilot)
+
+```bash
+pip install 'labagent[rag-local,aml]'
+labagent launch aml --name demo --param mode=rag --param jurisdiction=ca        # developers: indexed corpus, helper, quality checks
+labagent launch aml --name spring --param mode=copilot --param jurisdiction=ca   # staff: Excel and Word files, 13 exercises, instructor folder
+```
+
+It generates a made-up credit union with 8 laundering patterns, an answer key for every alert, policies, case files and regulation text. The labels come from how the data is built, not from an investigator. See [docs/aml.md](docs/aml.md).
 
 ## Web IDE per learner (unreleased: install from GitHub)
 
