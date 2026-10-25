@@ -102,7 +102,7 @@ def test_a_network_failure_is_a_clear_step_failure(home):
 
 def test_bad_options_fail_early_with_a_plain_message(home):
     for bad, msg in (({"mode": "x"}, "mode"), ({"jurisdiction": "fr"}, "jurisdiction"), ({"seed": "abc"}, "seed"), ({"generator": "magic"}, "generator"),
-                     ({"mode": "copilot"}, "not available")):
+                     ({"cases": 3}, "cases"), ({"guidance": "x"}, "guidance")):
         env = launch(home, out=str(home / "x"), **bad)
         assert env.status == "failed" and msg in env.error, (bad, env.error)
     env = run_pack(AmlLab(), "launch", "t", {"size": "tiny", "out": str(home / "x")}, services={**services(home), "allow_tiny": False})

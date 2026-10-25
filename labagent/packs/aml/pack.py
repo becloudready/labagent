@@ -10,6 +10,7 @@ the pack wrote there. The pack touches no cloud account in the local platform.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -106,7 +107,8 @@ class AmlLab(Pack):
     platforms = ("local",)
     cost_tier = "free"
     default_name = "demo"
-    output_keys = ("out_dir", "mode", "platform", "jurisdiction", "counts", "quality", "guide", "embedding_model")
+    output_keys = ("out_dir", "mode", "platform", "jurisdiction", "counts", "quality", "guide", "embedding_model", "learner_dir", "instructor_dir",
+                   "learner_zip", "instructor_zip", "package")
     params = [
         Param("mode", "rag", "rag (developers: indexed corpus and Python helpers) | copilot (staff: Excel, Word and PDF files)"),
         Param("jurisdiction", "ca", "ca | us | both"),
@@ -119,12 +121,35 @@ class AmlLab(Pack):
         Param("embedder", "auto", "auto (full model if installed, else keyword-only fallback) | hashing (force the fast keyword-only embedder)"),
         Param("llm", "none", "none (mock answers) | env (use the chat model configured in the environment, and score it on triage)"),
         Param("dataset", "aml-synthetic", "generator=snapshot: the pinned dataset name"),
+        Param("cases", 20, "copilot: how many case workbooks to include, 12 to 60"),
+        Param("guidance", "fetch", "copilot, Canada: fetch (download the FINTRAC guidance pages now) | skip"),
+        Param("cohort", None, "copilot: name of the folder and zip (default: the instance name)"),
         Param("min_hit_rate", Q.HIT_GATE, "Retrieval hit rate the launch must reach (not applied to the keyword-only fallback)"),
     ]
 
     # ---- helpers ---------------------------------------------------------------------------------------------------------------
     def services(self, profile: Optional[str]) -> Dict[str, Any]:
         return {}
+
+    def intent_params(self, text: str) -> Dict[str, str]:
+        """"set up the AML copilot lab for Canada" -> mode=copilot, jurisdiction=ca."""
+        low = text.lower()
+        out: Dict[str, str] = {}
+        if re.search(r"\b(copilot|co-pilot|microsoft 365|excel|staff|non-technical)\b", low):
+            out["mode"] = "copilot"
+        elif re.search(r"(?<![\w-])(rag|developer|developers|python)(?![\w-])", low):
+            out["mode"] = "rag"
+        ca = re.search(r"\b(canada|canadian|fintrac|pcmltfa)\b", low)
+        us = re.search(r"\b(united states|usa|america|american|fincen|bank secrecy act|the us|the u\.s\.)(?![\w-])", low)
+        if (ca and us) or re.search(r"\bboth (countries|jurisdictions)\b", low):
+            out["jurisdiction"] = "both"
+        elif ca:
+            out["jurisdiction"] = "ca"
+        elif us:
+            out["jurisdiction"] = "us"
+        if re.search(r"\b(medium|large)\b", low):
+            out["size"] = "medium"
+        return out
 
     def out_dir(self, ctx: PackContext) -> Path:
         return Path(ctx.params["out"] or f"aml-{ctx.name}").expanduser().resolve()
@@ -133,8 +158,13 @@ class AmlLab(Pack):
         p = ctx.params
         if p["mode"] not in ("rag", "copilot"):
             raise PackError("mode must be rag or copilot")
-        if p["mode"] == "copilot":
-            raise PackError("mode=copilot is not available in this build yet. Use mode=rag.")
+        if p["guidance"] not in ("fetch", "skip"):
+            raise PackError("guidance must be fetch or skip")
+        try:
+            if int(p["cases"]) < 12 or int(p["cases"]) > 60:
+                raise ValueError
+        except (TypeError, ValueError):
+            raise PackError("cases must be a number from 12 to 60") from None
         if p["jurisdiction"] not in ("ca", "us", "both"):
             raise PackError("jurisdiction must be ca, us or both")
         if p["size"] not in ("small", "medium") and not ctx.services.get("allow_tiny"):
@@ -167,7 +197,71 @@ class AmlLab(Pack):
         return cfg
 
     # ---- steps -----------------------------------------------------------------------------------------------------------------
+    def copilot_steps(self, ctx: PackContext) -> List[Step]:
+        from .copilot import guidance as G
+        from .copilot import package as P
+        from .schema import read_csv
+        out = self.out_dir(ctx)
+
+        def preflight(c: PackContext):
+            self._check_params(c)
+            if out.exists() and not (out / MARKER).exists() and any(out.iterdir()):
+                raise PackError(f"{out} already exists and was not created by this pack. Choose another folder with --param out=...")
+            out.mkdir(parents=True, exist_ok=True)
+            (out / MARKER).write_text("created by labagent pack aml\n")
+            return {"out_dir": str(out), "mode": "copilot", "platform": "local", "jurisdiction": c.params["jurisdiction"], "created": [MARKER]}
+
+        def data(c: PackContext):
+            try:
+                ds = generators.get(c.params["generator"]).generate(
+                    seed=c.params["seed"], size=c.params["size"], jurisdiction=c.params["jurisdiction"], dataset=c.params["dataset"])
+            except (datasets.DatasetError, KeyError) as e:
+                raise PackError(str(e)) from e
+            problems = validate(ds.tables)
+            if problems:
+                raise PackError("generated data failed validation: " + "; ".join(problems[:3]))
+            work = out / ".work" / "tables"
+            names = write_csv(ds.tables, work)
+            return {"counts": table_counts(ds.tables), "data_sources": ds.sources,
+                    "created": c.state.get("created", []) + [str(p.relative_to(out)) for p in names]}
+
+        def package(c: PackContext):
+            tables = read_csv(out / ".work" / "tables")
+            http = c.services.get("regs_http") or R.default_http
+            chunks: List[Dict[str, Any]] = []
+            if c.params["regulations"] != "skip":
+                try:
+                    chunks = R.regulation_chunks(c.params["jurisdiction"], http=http, cache_dir=c.services.get("regs_cache"))
+                except (OSError, ValueError) as e:
+                    raise PackError(f"could not download the regulation text ({type(e).__name__}). Check your network, or launch with --param regulations=skip") from e
+            notes: List[str] = []
+            texts: Dict[str, str] = {}
+            if c.params["guidance"] == "fetch" and c.params["jurisdiction"] in ("ca", "both"):
+                texts, notes = G.fetch_guidance(c.services.get("guidance_http") or R.default_http)
+            cohort = c.params["cohort"] or c.name
+            try:
+                res = P.build_package(tables, c.params["jurisdiction"], cohort, out, int(c.params["cases"]), chunks, texts)
+            except OSError as e:
+                raise PackError(f"could not write the files ({type(e).__name__}). Check the folder and the free space.") from e
+            reasons = [g["reason"] for g in tables["ground_truth"]]
+            problems = P.verify_package(Path(res["learner_dir"]), Path(res["instructor_dir"]), reasons)
+            if problems:
+                raise PackError("the folder failed its own checks: " + "; ".join(problems[:3]))
+            summary = {"files": res["files"], "cases": res["cases"], "exercises": res["exercises"], "regulation_excerpts": res["excerpts"],
+                       "fintrac_guidance": res["guidance"], "guidance_notes": notes, "checks_passed": True}
+            return {"learner_dir": res["learner_dir"], "instructor_dir": res["instructor_dir"], "learner_zip": res["learner_zip"],
+                    "instructor_zip": res["instructor_zip"], "package": summary, "created": c.state.get("created", []) + res["created"]}
+
+        return [
+            Step("preflight", "Check the options and the output folder", preflight, check=lambda c: (out / MARKER).exists() and "out_dir" in c.state),
+            Step("data", "Generate the synthetic customers, transfers and alerts", data, check=lambda c: "counts" in c.state and (out / ".work" / "tables" / "transactions.csv").exists()),
+            Step("package", "Build the Excel, Word and text files, the exercise guide and the zips", package,
+                 check=lambda c: bool(c.state.get("package", {}).get("checks_passed")) and Path(c.state.get("learner_zip", "")).exists()),
+        ]
+
     def deploy_steps(self, ctx: PackContext) -> List[Step]:
+        if ctx.params.get("mode") == "copilot":
+            return self.copilot_steps(ctx)
         out = self.out_dir(ctx)
 
         def preflight(c: PackContext):
@@ -271,6 +365,15 @@ class AmlLab(Pack):
                     shutil.rmtree(path)
                 elif path.exists():
                     path.unlink()
+            for rel in c.state.get("created", []):        # copilot mode lists every file it wrote: delete those, keep anything else
+                path = out / rel
+                if path.is_file():
+                    path.unlink()
+            for d in sorted((x for x in out.rglob("*") if x.is_dir()), key=lambda x: -len(x.parts)):
+                try:
+                    d.rmdir()               # empty folders only
+                except OSError:
+                    pass
             try:
                 out.rmdir()                 # only if empty: anything the learner added stays
             except OSError:

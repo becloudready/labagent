@@ -83,6 +83,8 @@ def extract_args(text: str, pack: Any) -> Dict[str, Any]:
         m = re.search(rf"(?<![\w-]){re.escape(prm.name)}(?![\w-])\s*(?:=|:|\bis\b|\bto\b)?\s*[\"']?([^\s\"',;]+(?:,[^\s\"',;]+)*)", text, re.I)
         if m and m.group(1).lower() not in STOP:
             out["params"][prm.name] = m.group(1)
+    for k, v in pack.intent_params(text).items():
+        out["params"].setdefault(k, v)
     return out
 
 

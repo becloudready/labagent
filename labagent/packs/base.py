@@ -70,6 +70,10 @@ class Pack:
                 "default_name": self.default_name, "platforms": list(self.platforms), "cost_tier": self.cost_tier,
                 "params": [{"name": q.name, "default": q.default, "help": q.help, "required": q.required} for q in self.params]}
 
+    def intent_params(self, text: str) -> Dict[str, str]:
+        """Parameters a plain-English request implies ("for Canada"). Exact rules on the sentence, never a model. Explicit `name value` pairs win."""
+        return {}
+
     def outputs(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Non-secret facts from state that go in the envelope (URLs, ids). Override when state has nested or mixed content."""
         return {k: v for k, v in state.items() if k in getattr(self, "output_keys", ())}
