@@ -75,7 +75,7 @@ def test_unexpected_exception_reports_class_only(home):
 
 
 def test_registry_lists_the_current_packs_and_the_cli_refuses_unknown_ones(capsys, home):
-    assert sorted(registry.all_packs()) == ["db-agent", "rag-ide", "rag-sec-tutorial"]
+    assert sorted(registry.all_packs()) == ["aml", "db-agent", "rag-ide", "rag-sec-tutorial"]
     assert main(["packs"]) == 0 and "rag-sec-tutorial" in capsys.readouterr().out
     assert main(["launch", "nope", "--name", "x"]) == 2
 
@@ -149,7 +149,7 @@ def test_an_explicit_profile_is_never_overridden(home):
 def test_packs_json_describes_every_pack_with_platforms_and_params(capsys, home):
     assert main(["packs", "--json"]) == 0
     cat = {p["id"]: p for p in json.loads(capsys.readouterr().out)["packs"]}
-    assert sorted(cat) == ["db-agent", "rag-ide", "rag-sec-tutorial"]
+    assert sorted(cat) == ["aml", "db-agent", "rag-ide", "rag-sec-tutorial"]
     assert cat["rag-ide"]["platforms"] == ["local", "ec2", "modal"] and cat["rag-ide"]["cost_tier"] == "metered"
     assert {"name": "hours", "default": 4, "help": "Hard cap per session, 1 to 24", "required": False} in cat["rag-ide"]["params"]
     assert all(p["title"] and p["summary"] and p["platforms"] and p["cost_tier"] for p in cat.values())

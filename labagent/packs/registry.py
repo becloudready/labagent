@@ -10,7 +10,8 @@ def builtin() -> Dict[str, Pack]:
     from .rag.tutorial_pack import RagSecTutorial
     from .db_agent.pack import DbAgent
     from .rag_ide.pack import RagIde
-    return {p.id: p for p in (RagSecTutorial(), DbAgent(), RagIde())}
+    from .aml.pack import AmlLab
+    return {p.id: p for p in (RagSecTutorial(), DbAgent(), RagIde(), AmlLab())}
 
 
 def all_packs() -> Dict[str, Pack]:

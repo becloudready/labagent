@@ -25,4 +25,7 @@ def get(generator_id: str) -> Generator:
     if generator_id == "builtin":
         from .builtin import Builtin
         return Builtin()
-    raise KeyError(f"unknown generator '{generator_id}'. Available now: builtin")
+    if generator_id == "snapshot":
+        from .snapshot import Snapshot
+        return Snapshot()
+    raise KeyError(f"unknown generator '{generator_id}'. Available now: builtin, snapshot")
