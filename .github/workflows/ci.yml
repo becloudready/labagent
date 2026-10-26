@@ -35,6 +35,6 @@ jobs:
       - name: fmt, validate and plan-level tests (mocked provider, no AWS)
         run: |
           set -e
-          for d in labagent/terraform/cohort_iam labagent/terraform/state_backend; do
+          for d in labagent/terraform/cohort_iam labagent/terraform/state_backend labagent/terraform/databricks_aws labagent/terraform/databricks_azure; do
             (cd "$d" && terraform fmt -check -recursive && terraform init -backend=false -input=false && terraform validate && terraform test)
           done
