@@ -54,6 +54,7 @@ class _Build:
         self.primary: Dict[str, str] = {}              # customer id -> main account id
         self.owner: Dict[str, str] = {}                # account id -> customer id
         self.amt: Dict[int, float] = {}
+        self.dayof: Dict[int, int] = {}
         self._k = 0
         self._ext = 0
         self._illicit = 0
@@ -78,6 +79,7 @@ class _Build:
     def add(self, ts: datetime, src: str, dst: str, amt: float, channel: str, desc: str, cur: Optional[str] = None) -> int:
         self._k += 1
         self.amt[self._k] = round(amt, 2)
+        self.dayof[self._k] = (ts.date() - self.base).days
         self.tx.append({"_k": self._k, "timestamp": _iso(ts), "from_account": src, "to_account": dst, "amount": round(amt, 2),
                         "currency": cur or self.cur.get(src) or self.cur.get(dst, "CAD"), "channel": channel, "description": desc})
         return self._k
@@ -178,8 +180,9 @@ class _Build:
 
     def case(self, label: str, pattern: str, rule: str, key_account: str, involved: List[str], keys: List[int], reason: str,
              amount: float, day: float, score: Tuple[int, int]) -> None:
+        last = max(self.dayof[k] for k in keys)          # the alert fires on the day of the last transfer it covers
         self.cases.append({"label": label, "pattern": pattern, "rule": rule, "account": key_account, "involved": involved, "keys": keys,
-                           "reason": reason, "amount": round(amount, 2), "day": int(day), "score": self.rng.randint(*score)})
+                           "reason": reason, "amount": round(amount, 2), "day": max(int(day), last), "score": self.rng.randint(*score)})
 
     def expected_of(self, acct: str) -> float:
         c = next(x for x in self.customers if x["id"] == self.owner[acct])
@@ -436,9 +439,9 @@ class _Build:
     def profile(self, c: Dict[str, Any]) -> str:
         cur = self.cur[self.primary[c["id"]]]
         if c["type"] == "business":
-            who = f"{c['name']} is a {c['occupation']} business in {N.COUNTRY_NAMES.get(c['country'], c['country'])}."
+            who = f"{c['name']} is {'an' if c['occupation'][0] in 'aeiou' else 'a'} {c['occupation']} business in {N.COUNTRY_NAMES.get(c['country'], c['country'])}."
         else:
-            job = {"student": "is a student", "retired": "is retired"}.get(c["occupation"], f"works as a {c['occupation']}")
+            job = {"student": "is a student", "retired": "is retired"}.get(c["occupation"], f"works as {'an' if c['occupation'][0] in 'aeiou' else 'a'} {c['occupation']}")
             who = f"{c['name']} lives in {N.COUNTRY_NAMES.get(c['country'], c['country'])} and {job}."
         return (f"{who} Customer since {c['onboarding_date']}. Expects about {c['expected_monthly_activity']:,} {cur} of deposits each month. "
                 f"Risk rating: {c['risk_rating']}.")
