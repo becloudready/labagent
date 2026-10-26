@@ -35,7 +35,7 @@ rag-local = ["pydantic>=2", "chromadb>=0.5", "sentence-transformers>=3", "stream
 modal = ["modal>=1.0"]
 aml = ["openpyxl>=3.1", "python-docx>=1.1", "pyarrow>=15"]
 rag-lab = ["pydantic>=2", "chromadb>=0.5", "sentence-transformers>=3", "streamlit>=1.35", "pypdf>=4", "groq>=0.9", "langchain>=0.3", "qdrant-client>=1.9", "jupyterlab>=4", "ipykernel>=6"]
-dev = ["pytest>=8", "pydantic>=2", "moto[all]>=5", "build>=1.2", "twine>=5"]
+dev = ["pytest>=8", "pydantic>=2", "moto[all]>=5", "build>=1.2", "twine>=5", "openpyxl>=3.1", "python-docx>=1.1"]
 
 [project.urls]
 Homepage = "https://github.com/becloudready/labagent"
