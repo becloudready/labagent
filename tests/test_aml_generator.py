@@ -141,6 +141,15 @@ def test_no_case_happens_before_its_account_was_opened(small):
                     assert tx[k]["timestamp"][:10] >= opened[a]
 
 
+def test_graph_alert_amount_is_exactly_the_sum_of_its_transfers(small):
+    tx = {t["id"]: t for t in small.tables["transactions"]}
+    al = {a["id"]: a for a in small.tables["alerts"]}
+    for g in small.tables["ground_truth"]:
+        if g["pattern"] in PATTERNS or g["pattern"] == "sanctions_match" or g["label"] == "dismiss":
+            total = round(sum(float(tx[k]["amount"]) for k in g["key_transactions"].split(";")), 2)
+            assert abs(total - float(al[g["alert_id"]]["amount"])) < 0.005, (g["alert_id"], total, al[g["alert_id"]]["amount"])
+
+
 def test_case_reasons_match_the_data():
     """Reasons are written for learners to check against the tables, so the checkable claims must be true."""
     for seed in (42, 1, 2):
