@@ -183,7 +183,7 @@ def notebook() -> str:
            "2. Set `top_k=1` and ask a question that needs two documents.\n3. Call `rag.reset()`, re-ingest with `chunk_chars=100` in `RAGSettings`, and compare answers.\n"),
         code("print(rag.query('What is the lunch menu?').answer)\n"),
         md("## Next\n\nOpen the visual playground in a terminal with `labagent rag playground` and compare scores side by side. "
-           "For a managed version on Databricks Lakebase, see `labagent launch rag-sec-filings`.\n"),
+           "For a managed version on Databricks Lakebase, see `labagent launch rag-sec-tutorial`.\n"),
     ]
     for i, c in enumerate(cells):
         c["id"] = f"cell{i:02d}"          # nbformat 4.5 requires cell ids
@@ -258,7 +258,7 @@ def sec_notebook() -> str:
         md("## 9. What it cost, and where next\n\nEmbeddings ran on this machine, so they were free. Answers cost fractions of a cent on Groq's free tier. "
            "The compute you are using is billed per second only while this IDE runs and stops when it goes idle.\n\n"
            "**Next:** the same pipeline runs managed on Databricks Lakebase (Postgres with pgvector) and Databricks Apps:\n\n"
-           "```\npip install 'labagent[rag]'\nlabagent launch rag-sec-filings --name demo\n```\n"),
+           "```\npip install 'labagent[rag]'\nlabagent launch rag-sec-tutorial --name demo\n```\n"),
     ]
     for i, c in enumerate(cells):
         c["id"] = f"cell{i:02d}"          # nbformat 4.5 requires cell ids

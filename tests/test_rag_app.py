@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from labagent.packs.rag.sources.builtin import Builtin
 from labagent.packs.rag.sources.sec import SecFilings
 
 APP = Path(__file__).parent.parent / "labagent" / "packs" / "rag" / "app"
@@ -24,11 +23,6 @@ def test_sec_ui_suggestions_cover_loaded_companies_with_mixed_topics():
     assert all(x["filters"]["ticker"] in {m["ticker"] for m in METAS} for x in s if "filters" in x)
     only = SecFilings().ui([METAS[0]])["suggestions"]
     assert all("JPMorgan" not in x["question"] for x in only)                  # nothing about companies that are not loaded
-
-
-def test_builtin_ui_only_suggests_loaded_topics():
-    ui = Builtin().ui([{"source": "returns"}])
-    assert ui["suggestions"] and all(x["filters"] == {"source": "returns"} for x in ui["suggestions"])
 
 
 def test_page_is_self_contained_and_escapes_untrusted_text():

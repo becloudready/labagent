@@ -1,5 +1,5 @@
-"""Data sources for RAG packs. A source turns an upstream corpus into chunks (id, title, content, meta)
-plus an evaluation set. Add one by subclassing Source; register built-ins below or via the
+"""Data sources for the RAG tutorial and for building dataset snapshots. A source turns an upstream corpus into chunks
+(id, title, content, meta) plus an evaluation set. Add one by subclassing Source; register built-ins below or via the
 `labagent.rag_sources` entry point."""
 from __future__ import annotations
 
@@ -12,11 +12,6 @@ class Source:
     id: str = ""
     params: List[Param] = []
     schema: str = ""          # Postgres schema for this source's table: keeps sources side by side in one project
-
-    def fingerprint(self, ctx: PackContext) -> str:
-        """Identity of the corpus this run will produce. When it changes, the build and load stages redo their work
-        (and the table is replaced) instead of trusting a cache or a matching row count from different data."""
-        return self.id
 
     def chunks(self, ctx: PackContext) -> List[Dict[str, Any]]:
         raise NotImplementedError
@@ -32,9 +27,8 @@ class Source:
 
 
 def _builtin() -> Dict[str, Source]:
-    from .builtin import Builtin
     from .sec import SecFilings, SecSnapshot
-    return {s.id: s for s in (Builtin(), SecFilings(), SecSnapshot())}
+    return {s.id: s for s in (SecFilings(), SecSnapshot())}
 
 
 def get(source_id: str) -> Source:

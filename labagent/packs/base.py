@@ -54,6 +54,8 @@ class Pack:
     summary: str = ""
     aliases: tuple = ()          # short names accepted on the command line and by the natural-language translator
     default_name: str = ""       # instance name used when --name is omitted
+    platforms: tuple = ()        # where the pack can run, for the console's platform picker (first is the default)
+    cost_tier: str = ""          # free | low | metered. A hint for dashboards, not a price
     params: List[Param] = []
 
     def deploy_steps(self, ctx: PackContext) -> List[Step]:
@@ -61,6 +63,16 @@ class Pack:
 
     def destroy_steps(self, ctx: PackContext) -> List[Step]:
         raise NotImplementedError
+
+    def describe(self) -> Dict[str, Any]:
+        """Machine-readable description for `labagent packs --json`. No secrets: defaults are literals from the code."""
+        return {"id": self.id, "title": self.title, "summary": self.summary, "aliases": list(self.aliases),
+                "default_name": self.default_name, "platforms": list(self.platforms), "cost_tier": self.cost_tier,
+                "params": [{"name": q.name, "default": q.default, "help": q.help, "required": q.required} for q in self.params]}
+
+    def outputs(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Non-secret facts from state that go in the envelope (URLs, ids). Override when state has nested or mixed content."""
+        return {k: v for k, v in state.items() if k in getattr(self, "output_keys", ())}
 
     def services(self, profile: Optional[str]) -> Dict[str, Any]:
         """Real service objects for this pack. Tests bypass this by passing their own services."""
@@ -98,8 +110,19 @@ def save_state(pack_id: str, name: str, state: Dict[str, Any]) -> None:
     p.chmod(0o600)
 
 
+def _seal_passwords(env: Envelope, ctx: PackContext, pubkey_pem: Optional[str]) -> None:
+    """Packs that mint per-user credentials leave {user: secret} in ctx.mem['passwords']. With a public key they leave only as ciphertext."""
+    secrets_in = ctx.mem.get("passwords") or {}
+    if not pubkey_pem or not secrets_in:
+        return
+    from ..secrets_box import encrypt, load_public_key
+    key = load_public_key(pubkey_pem)
+    env.secrets = [{"user": user, "kind": "ide_password", "ciphertext": encrypt(key, pw)} for user, pw in sorted(secrets_in.items())
+                   if not str(pw).startswith("(")]
+
+
 def run_pack(pack: Pack, action: str, name: str, given: Dict[str, Any], services: Optional[Dict[str, Any]] = None,
-             dry_run: bool = False, log: Optional[Callable[[str], None]] = None) -> Envelope:
+             dry_run: bool = False, log: Optional[Callable[[str], None]] = None, pubkey_pem: Optional[str] = None) -> Envelope:
     env = Envelope(command=f"{action}:{pack.id}", mode="dry-run" if dry_run else "apply", cohort=name)
     try:
         params = pack.resolve(given)
@@ -134,11 +157,12 @@ def run_pack(pack: Pack, action: str, name: str, given: Dict[str, Any], services
         env.summary = {"steps": len(env.items)}
         return env
     env.summary = {s: sum(1 for i in env.items if i["state"] == s) for s in ("done", "skipped", "failed")}
+    _seal_passwords(env, ctx, pubkey_pem)     # also on failure: a half-built lab must not lose the passwords it already handed out
     failed = [i for i in env.items if i["state"] == "failed"]
     if failed:
         env.fail(f"step '{failed[0]['step']}' failed: {failed[0].get('error', '')}")
     else:
-        env.summary["outputs"] = {k: v for k, v in ctx.state.items() if k in getattr(pack, "output_keys", ())}
+        env.summary["outputs"] = pack.outputs(ctx.state)
         if action == "destroy":
             state_path(pack.id, name).unlink(missing_ok=True)
     return env

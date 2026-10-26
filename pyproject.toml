@@ -60,10 +60,10 @@ labagent = [
   "terraform/*/*.tftpl",
   "terraform/*/.terraform.lock.hcl",
   "terraform/*/tests/*.tftest.hcl",
-  "packs/*/sources/*.jsonl",
   "packs/*/sources/*.json",
   "packs/*/app/*",
   "packs/*/app/static/*",
+  "packs/*/tutorial/notebooks/*.py",
 ]
 
 [tool.pytest.ini_options]

@@ -1,11 +1,23 @@
+import importlib.util
 import json
+from pathlib import Path
 
 import pytest
 
 from labagent.packs.base import PackContext, PackError, run_pack
 from labagent.packs.rag.chunking import chunk_text
-from labagent.packs.rag.pack import RagSecFilings, _retrieval
 from labagent.packs.rag.sources.sec import SecFilings, html_to_text, split_items
+
+APP = Path(__file__).parent.parent / "labagent" / "packs" / "rag" / "app"
+
+
+def _retrieval():
+    """The retrieval module ships inside the app bundle, so tests load it by path."""
+    spec = importlib.util.spec_from_file_location("labagent_rag_retrieval", APP / "retrieval.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
 
 PARA = "The company faces significant risks from supply chain disruption and component shortages. " * 6
 
@@ -64,7 +76,7 @@ def sec_ctx(tmp_path, monkeypatch, tickers="ACME", **extra):
         seen.append((url, ua))
         return pages[url].encode()
     params = {"tickers": tickers, "filings": 2, "sections": "1,1A,7", "user_agent": "Test Person test@example.com", **extra}
-    return PackContext("rag-sec-filings", "t", params, services={"http": http}), seen
+    return PackContext("sec-source", "t", params, services={"http": http}), seen
 
 
 def test_sec_source_builds_cited_chunks_with_metadata(tmp_path, monkeypatch):
@@ -91,13 +103,6 @@ def test_sec_requires_contact_and_limits_volume(tmp_path, monkeypatch):
     ctx, _ = sec_ctx(tmp_path, monkeypatch, tickers="NOPE")
     with pytest.raises(PackError, match="ticker not found"):
         SecFilings().chunks(ctx)
-
-
-def test_live_pack_requires_user_agent_but_snapshot_pack_does_not():
-    from labagent.packs.rag.pack import RagSecFilingsLive
-    env = run_pack(RagSecFilingsLive(), "launch", "x", {}, services={})
-    assert env.status == "failed" and "user_agent" in env.error
-    assert "user_agent" not in [p.name for p in RagSecFilings().params]
 
 
 class Rows:

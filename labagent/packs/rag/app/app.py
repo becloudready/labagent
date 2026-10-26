@@ -23,6 +23,9 @@ _meta = {"v": None, "exp": 0.0}
 KEY = re.compile(r"^[a-z_][a-z0-9_]*$")
 SHOWN_META = ("ticker", "company", "fiscal_year", "section", "item", "form", "url", "source")
 
+# gpt-oss models spend tokens on reasoning before the answer: 500 truncated answers (and their citations) in testing; the longest seen used 868
+MAX_ANSWER_TOKENS = 1200
+
 SYSTEM = ("You answer questions using only the numbered context passages. Cite the passages you used like [1] or [2]. "
           "If the context does not contain the answer, say you do not know. Do not use outside knowledge.")
 
@@ -99,7 +102,7 @@ def ask(a: Ask):
         return {"answer": "I do not know: no matching passages.", "sources": []}
     context = "\n\n".join(f"[{i}] {h['title']}\n{h['content']}" for i, h in enumerate(hits, 1))
     out = _invoke(os.environ["CHAT_ENDPOINT"], {"messages": [{"role": "system", "content": SYSTEM},
-                  {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {a.question}"}], "max_tokens": 500})
+                  {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {a.question}"}], "max_tokens": MAX_ANSWER_TOKENS})
     return {"answer": out["choices"][0]["message"]["content"],
             "sources": [{"n": i, "title": h["title"], "url": h["meta"].get("url"), "score": h["score"],
                          "snippet": h["content"][:600], "meta": {k: v for k, v in h["meta"].items() if k in SHOWN_META}}

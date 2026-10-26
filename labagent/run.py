@@ -1,6 +1,7 @@
 """Single entry point used by the CI runner: execute a job document fetched from the orchestrator."""
 from __future__ import annotations
 
+import re
 from typing import Any, Dict
 
 from .context import Ctx
@@ -8,7 +9,31 @@ from .discovery import Scope
 from .envelope import Envelope
 from . import cleanup as cleanup_mod, iam_ops, sweep
 
-COMMANDS = {"provision", "inventory", "sweep", "reset", "offboard", "audit", "cleanup"}
+PACK_COMMANDS = {"launch", "destroy"}
+COMMANDS = {"provision", "inventory", "sweep", "reset", "offboard", "audit", "cleanup"} | PACK_COMMANDS
+# Parameters a remote job may not set: they point at the runner's own disk or identity, not at the lab.
+JOB_PARAM_DENY = {"image", "profile"}
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}$")
+
+
+def run_pack_job(job: Dict[str, Any]) -> Envelope:
+    """job = {run_id, command: launch|destroy, pack, name, params{}, mode?: dry-run, secrets_pubkey_pem?}. Needs no AWS context."""
+    from .packs import registry
+    from .packs.base import run_pack
+    cmd, run_id = job["command"], job.get("run_id")
+    env = Envelope(command=cmd, run_id=run_id)
+    name, params = str(job.get("name") or ""), job.get("params") or {}
+    if not NAME_RE.match(name):
+        return env.fail("name must be lowercase letters, digits and hyphens (1 to 31 characters)")
+    if not isinstance(params, dict) or JOB_PARAM_DENY & set(params):
+        return env.fail("params must be an object and may not set: " + ", ".join(sorted(JOB_PARAM_DENY)))
+    try:
+        pack = registry.resolve(str(job.get("pack") or ""))
+    except (KeyError, ValueError) as e:
+        return env.fail(str(e.args[0] if e.args else e)[:200])
+    out = run_pack(pack, cmd, name, params, dry_run=job.get("mode") == "dry-run", pubkey_pem=job.get("secrets_pubkey_pem"))
+    out.run_id = run_id
+    return out
 
 
 def run_job(ctx: Ctx, job: Dict[str, Any]) -> Envelope:
@@ -17,6 +42,11 @@ def run_job(ctx: Ctx, job: Dict[str, Any]) -> Envelope:
     run_id = job.get("run_id")
     if cmd not in COMMANDS:
         return Envelope(command=str(cmd)[:40], run_id=run_id).fail("unknown command")
+    if cmd in PACK_COMMANDS:
+        try:
+            return run_pack_job(job)
+        except Exception as e:
+            return Envelope(command=cmd, run_id=run_id).fail(f"{type(e).__name__}: {str(e)[:200]}")
     cohort = job.get("cohort") or {}
     cid, cdate = cohort.get("id"), cohort.get("created_date")
     learners = job.get("learners") or []

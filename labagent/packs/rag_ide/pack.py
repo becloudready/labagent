@@ -89,6 +89,8 @@ class RagIde(Pack):
     title = "Browser VS Code lab per learner (Modal)"
     summary = "Serverless web IDE with the RAG lab for each learner: one Modal login, nothing for learners to install"
     aliases = ("ide", "web-ide", "rag-web-ide")
+    platforms = ("local", "ec2", "modal")
+    cost_tier = "metered"
     default_name = "cohort"
     params = [
         Param("platform", "modal", "modal (one serverless sandbox per learner) | ec2 (one shared instance per cohort, much cheaper at scale) | local (Docker on this machine, for demos and tests)"),
@@ -113,6 +115,13 @@ class RagIde(Pack):
 
     def services(self, profile):
         return {"modal": _LazyModal(), "ec2": _LazyEc2(), "local": _LazyLocal()}
+
+    def outputs(self, state):
+        """URLs only. State also holds sandbox ids and file paths that a dashboard has no use for."""
+        out = {"learners": {n: {"url": i.get("url")} for n, i in sorted((state.get("learners") or {}).items())}}
+        if state.get("host"):
+            out["host"] = state["host"]
+        return out
 
     def _validate(self, ctx: PackContext) -> None:
         p = ctx.params

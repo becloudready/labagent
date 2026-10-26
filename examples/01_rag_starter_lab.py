@@ -5,7 +5,7 @@
     python ../examples/01_rag_starter_lab.py
 
 Set GROQ_API_KEY in .env for real answers; without any key you get a clearly marked mock answer.
-This is the laptop version of the labagent Databricks packs (`labagent launch rag-sec-filings`).
+This is the laptop version of the labagent Databricks packs (`labagent launch rag-sec-tutorial`).
 """
 from pathlib import Path
 

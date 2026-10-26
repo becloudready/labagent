@@ -12,7 +12,7 @@ from . import __version__
 from .config import STATE_BACKEND_DIR, load_config
 from .context import Ctx, GuardError
 from .envelope import Envelope
-from .run import COMMANDS, run_job
+from .run import COMMANDS, PACK_COMMANDS, run_job, run_pack_job
 
 
 def _emit(env: Envelope, output: str) -> None:
@@ -28,6 +28,9 @@ def _packs_main(args) -> int:
     from .packs import registry
     from .packs.base import run_pack
     if args.cmd == "packs":
+        if args.json:
+            print(json.dumps({"packs": [pk.describe() for _, pk in sorted(registry.all_packs().items())]}, indent=2))
+            return 0
         for pid, pk in sorted(registry.all_packs().items()):
             print(f"{pid:16} {pk.summary}")
         return 0
@@ -50,10 +53,10 @@ KNOWN = {"run", "packs", "rag", "dataset", "launch", "destroy", "bootstrap-path"
 
 
 def _nl_main(argv) -> int:
-    """labagent "deploy rag-sec on databricks": translate with a small model, confirm, then run the real command."""
+    """labagent "deploy rag-tutorial on databricks": translate with a small model, confirm, then run the real command."""
     from . import nl
     from .packs import registry
-    q = argparse.ArgumentParser(prog="labagent", description="Plain-English front end: labagent \"deploy rag-sec on databricks\"")
+    q = argparse.ArgumentParser(prog="labagent", description="Plain-English front end: labagent \"deploy rag-tutorial on databricks\"")
     q.add_argument("text", nargs="+")
     q.add_argument("--endpoint", help=f"OpenAI-compatible base URL (default {nl.DEFAULT_URL}, or LABAGENT_LLM_URL)")
     q.add_argument("--model", help=f"Model (default {nl.DEFAULT_MODEL}, or LABAGENT_LLM_MODEL)")
@@ -101,11 +104,12 @@ def main(argv=None) -> int:
     r.add_argument("--job", required=True, help="Path to job JSON (contains roster: keep it out of git and logs)")
     r.add_argument("--output", default="result.json", help="Result envelope path, or - for stdout")
     r.add_argument("--ruleset", help="Path to a ruleset JSON for audit/cleanup (merged into the job)")
-    sub.add_parser("packs", help="List available lab packs")
+    pk = sub.add_parser("packs", help="List available lab packs")
+    pk.add_argument("--json", action="store_true", help="Machine-readable catalog with parameters, platforms and cost tier (used by the console)")
     from .ai.rag import cli as rag_cli
     rag_cli.add_parser(sub)
     dp = sub.add_parser("dataset", help="Package a chunk file as a versioned, checksummed snapshot (maintainers)")
-    dp.add_argument("--chunks", required=True, help="JSONL of chunks, e.g. ~/.labagent/cache/rag-sec-filings/<name>.jsonl")
+    dp.add_argument("--chunks", required=True, help="JSONL of chunks: one object per line with id, title, content and meta")
     dp.add_argument("--name", required=True)
     dp.add_argument("--version", required=True)
     dp.add_argument("--out", required=True, help="Output directory")
@@ -140,8 +144,12 @@ def main(argv=None) -> int:
         print("\n".join(sorted(COMMANDS)))
         return 0
     try:
-        cfg = load_config(args.config)
         job = json.loads(Path(args.job).read_text())
+        if job.get("command") in PACK_COMMANDS:       # lab packs bring their own credentials: no AWS account guard here
+            env = run_pack_job(job)
+            _emit(env, args.output)
+            return env.exit_code
+        cfg = load_config(args.config)
         session = boto3.Session(profile_name=args.profile, region_name=cfg.region)
         if getattr(args, "ruleset", None) and "ruleset" not in job:
             job["ruleset"] = json.loads(Path(args.ruleset).read_text())

@@ -5,9 +5,10 @@ credentials, or in your CI. Add a lab by writing a `Pack` subclass; the framewor
 
 ```bash
 labagent packs                                   # list
-labagent launch rag-lakebase --name demo --dry-run
-labagent launch rag-lakebase --name demo         # re-run to resume after a failure
-labagent destroy rag-lakebase --name demo        # removes only what this pack created
+labagent packs --json                            # catalog for dashboards: params, platforms, cost tier
+labagent launch rag-sec-tutorial --name demo --dry-run
+labagent launch rag-sec-tutorial --name demo         # re-run to resume after a failure
+labagent destroy rag-sec-tutorial --name demo        # removes only what this pack created
 ```
 
 ## Writing a pack
@@ -27,45 +28,50 @@ Ship it in your own package and register it: `[project.entry-points."labagent.pa
 Rules: `check` is a read-only "already done" test; step outputs are non-secret; tokens stay in memory (`ctx.mem`).
 State is a 0600 file at `~/.labagent/packs/<pack>/<name>.json`.
 
-## RAG packs (Databricks Lakebase)
+## RAG tutorial (Databricks Lakebase)
 
-One reusable pipeline, pluggable data sources. Each stage is idempotent, and `evaluate` gates the deploy:
+`rag-sec-tutorial` builds nothing itself. It uploads nine notebooks and the app code into your workspace, and you run them in order.
+Each notebook is short, safe to re-run, and ends with a check cell that stops with a clear message if the step did not work.
 
-`preflight, project, locate, build (fetch, parse, chunk), schema, load (embed), index, evaluate, app`
-
-| Pack | Source | Use |
-|---|---|---|
-| `rag-sec-filings` | Pinned snapshot of real SEC 10-Ks ([dataset release](https://github.com/becloudready/labagent-datasets/releases/tag/sec-10k-2026.10)), split into Items. No SEC access or contact needed | Financial research |
-| `rag-sec-filings-live` | The same corpus downloaded fresh from EDGAR at launch (needs a contact for the SEC) | Newer filings, other tickers |
-| `rag-lakebase` | 25 invented passages | Smoke test only |
+| Notebook | You |
+|---|---|
+| `00_setup` | Check your model endpoints, create the Lakebase project |
+| `01_data` | Download the pinned SEC 10-K dataset (checked against a SHA-256) and explore it |
+| `02_embeddings` | Call the embedding model, compare similarity, time batches |
+| `03_pgvector` | Create the table, load the filings in two stages (everyone but Apple, then Apple) to see why embedding decides what search can find |
+| `04_search` | Add HNSW and full-text indexes, run vector, keyword and hybrid (reciprocal rank fusion) search, add filters |
+| `05_answer_and_eval` | Generate cited answers, try a question with no answer, score retrieval against a 0.6 gate |
+| `06_deploy_app` | Create the Databricks App, give its own identity a read-only role, deploy |
+| `99_cleanup` | Remove the app, the schema and the database project |
 
 ```bash
 pip install 'labagent[rag]'      # needs the Databricks CLI, then: databricks auth login
-labagent launch rag-sec-filings --name sec --param "user_agent=Full Name name@example.com" \
-    --param tickers=AAPL,JPM,PFE --param filings=2
+labagent launch rag-sec-tutorial --name demo
 ```
 
-What makes it more than a toy: section-aware chunking, hybrid retrieval (pgvector + full-text, rank-fused), metadata filters
-(`{"ticker": "AAPL"}`), numbered citations with the filing URL, and an evaluation set that must reach `min_hit_rate`
-(default 0.6) before the app is deployed. The snapshot is downloaded from a GitHub release and verified against a SHA-256 committed in
-`labagent/packs/rag/sources/datasets.json`; a mismatch is refused. The live pack follows EDGAR rules (declared contact, under 10 requests
-per second, cached locally). Filings are never stored in this repo.
+It prints a link to the uploaded folder. Open it, start with `00_setup`, and finish with `99_cleanup`. The notebooks run on serverless
+compute, need no cluster, and download the dataset themselves. Free Edition allows one Lakebase project and three apps, and stops apps
+after 24 hours. `labagent destroy rag-sec-tutorial --name demo` removes only the uploaded folder: run `99_cleanup` first to remove what the
+notebooks created.
 
-Free Edition allows one Lakebase project: pass `--param project=<existing>` to share it. Each source uses its own schema, and
-`destroy` drops only that schema (and the project only if labagent created it). Apps stop after 24 hours.
+The one-command versions of this lab (`rag-lakebase`, `rag-sec-filings`, `rag-sec-filings-live`) were removed in favour of the tutorial.
+Anyone who types one of those names gets a message pointing here. They are still in the `v0.2.1` release and git tag.
 
-Add a source by subclassing `labagent.packs.rag.sources.Source` (`chunks()` and `eval_set()`) and registering it under the
-`labagent.rag_sources` entry point.
+Add a data source by subclassing `labagent.packs.rag.sources.Source` and registering it under the `labagent.rag_sources` entry point.
 
 ## Publishing a dataset snapshot (maintainers)
 
 ```bash
-labagent dataset --chunks ~/.labagent/cache/rag-sec-filings-live/<name>.jsonl --name sec-10k --version 2026.11 --out out/
+labagent dataset --chunks chunks.jsonl --name sec-10k --version 2026.11 --out out/
 gh release create sec-10k-2026.11 out/* --repo becloudready/labagent-datasets
 ```
 
-The build is byte-for-byte reproducible. Then add the release URL and the printed `sha256` to `datasets.json` in a pull request.
-Data limitations (for example, no Item 7 for JPM and CVX) are listed in the dataset README.
+`chunks.jsonl` has one JSON object per line: `id`, `title`, `content`, `meta`. The build is byte-for-byte reproducible. Then add the release
+URL and the printed `sha256` to `labagent/packs/rag/sources/datasets.json` in a pull request. Data limitations (for example, no Item 7 for
+JPM and CVX) are listed in the dataset README.
+
+The SEC chunks were produced by the `rag-sec-filings-live` pack, which no longer exists. The parser it used is still in the code
+(`labagent.packs.rag.sources.sec.SecFilings`) but nothing calls it any more. To rebuild the SEC dataset from EDGAR, use the `v0.2.1` tag.
 
 ## db-agent (text-to-SQL on Databricks)
 
@@ -91,8 +97,8 @@ Steps: `preflight` (login, SQL warehouse, sample data, serving endpoints), `fetc
 ## Plain English
 
 ```bash
-labagent "Run and deploy rag-sec in databricks"      # shows the command, asks, then runs it
-labagent "tear down rag-sec" --print-only            # just show the command
+labagent "Run and deploy rag-tutorial in databricks"      # shows the command, asks, then runs it
+labagent "tear down rag-tutorial" --print-only            # just show the command
 labagent ask what can you deploy                     # 'ask' lets you skip the quotes
 ```
 
@@ -103,7 +109,7 @@ A remote endpoint is announced before your sentence is sent to it.
 
 The model never runs anything, and it is not trusted for details:
 - The instance name (`called x`) and parameters (`profile DEFAULT`, `tickers AAPL,JPM`) are read from your sentence by exact rules, so they cannot be invented.
-- A pack you typed (`rag-sec`, or any id or alias) wins over the model's pick. If the model guessed, the pack needs a distinctive word from your sentence.
+- A pack you typed (`rag-tutorial`, or any id or alias) wins over the model's pick. If the model guessed, the pack needs a distinctive word from your sentence.
 - Requests that ask to create and delete in one sentence are refused. A delete needs a delete word, and you confirm by typing the instance name.
 - Without a terminal, nothing runs unless you pass `--yes`.
 

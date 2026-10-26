@@ -14,27 +14,25 @@
 
 A lab is a **pack**: ordered steps that are safe to re-run. `launch` builds it and resumes after a failure. `destroy` removes only what the pack created.
 
-- **Databricks labs.** RAG over real SEC 10-K filings, and a text-to-SQL agent, in your own Free Edition workspace.
+- **Databricks labs.** A step-by-step RAG tutorial over real SEC 10-K filings (notebooks you run), and a text-to-SQL agent, in your own Free Edition workspace.
 - **Web IDE per learner.** Private browser VS Code with the RAG lab preinstalled, on Modal, EC2 or local Docker.
 - **AWS sandboxes.** Cohort IAM with Terraform, plus plan-then-apply cleanup of shared accounts.
-- **Plain English.** `labagent "deploy rag-sec"` shows the command it understood and asks first (local Ollama, any OpenAI-compatible endpoint).
+- **Plain English.** `labagent "deploy rag-tutorial"` shows the command it understood and asks first (local Ollama, any OpenAI-compatible endpoint).
 
 ## Quick start
 
 ```bash
 pip install 'labagent[rag]'            # Python 3.9+; sign in with: databricks auth login
 labagent packs                         # list the labs
-labagent launch rag-sec-filings --name demo
-labagent destroy rag-sec-filings --name demo
+labagent launch rag-sec-tutorial --name demo     # uploads the notebooks to your workspace; you run them
+labagent destroy rag-sec-tutorial --name demo    # removes the uploaded folder
 ```
 
 ## Labs
 
 | Pack | What you get | Runs on |
 |---|---|---|
-| `rag-sec-filings` | RAG over a pinned SEC 10-K dataset: hybrid search, filters, citations, a quality gate before deploy | Databricks Free Edition |
-| `rag-sec-filings-live` | Same, fetching fresh filings from EDGAR | Databricks Free Edition |
-| `rag-lakebase` | Small demo corpus to smoke-test your setup | Databricks Free Edition |
+| `rag-sec-tutorial` | Nine notebooks that build RAG on a pinned SEC 10-K dataset one step at a time: embeddings, pgvector, hybrid search, filters, citations, an evaluation gate, and the deployed app. Each ends with a check cell | Databricks Free Edition |
 | `db-agent` | [db-agent](https://github.com/db-agent/db-agent) text-to-SQL over a Databricks sample dataset, pinned commit | Databricks Free Edition |
 | `rag-ide` | A private browser VS Code per learner with the RAG lab and notebooks | Modal, EC2 or local Docker |
 
