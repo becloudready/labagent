@@ -194,3 +194,20 @@ resource "databricks_mws_workspaces" "this" {
 
   depends_on = [time_sleep.iam_ready] # the role's permissions are checked while the workspace is created
 }
+
+# ---- access for people -----------------------------------------------------------------------------------------------------------
+# The service principal that creates the workspace is its only user at first. This gives the listed account users access.
+
+data "databricks_user" "people" {
+  provider  = databricks.mws
+  for_each  = toset(var.admin_emails)
+  user_name = each.value
+}
+
+resource "databricks_mws_permission_assignment" "people" {
+  provider     = databricks.mws
+  for_each     = data.databricks_user.people
+  workspace_id = databricks_mws_workspaces.this.workspace_id
+  principal_id = each.value.id
+  permissions  = [var.admin_role]
+}

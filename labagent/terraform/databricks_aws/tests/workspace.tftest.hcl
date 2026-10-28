@@ -77,3 +77,43 @@ run "bad_inputs_are_refused" {
   }
   expect_failures = [var.databricks_account_id]
 }
+
+run "nobody_is_added_by_default" {
+  command = plan
+  assert {
+    condition     = length(databricks_mws_permission_assignment.people) == 0
+    error_message = "no access should be granted unless admin_emails is set"
+  }
+}
+
+run "listed_users_get_the_admin_role" {
+  command = plan
+  variables {
+    admin_emails = ["ada@example.com", "bob@example.com"]
+  }
+  override_data {
+    target = data.databricks_user.people["ada@example.com"]
+    values = { id = "1111" }
+  }
+  override_data {
+    target = data.databricks_user.people["bob@example.com"]
+    values = { id = "2222" }
+  }
+  assert {
+    condition     = length(databricks_mws_permission_assignment.people) == 2
+    error_message = "one assignment per address"
+  }
+  assert {
+    condition     = alltrue([for a in databricks_mws_permission_assignment.people : contains(a.permissions, "ADMIN")])
+    error_message = "the default role is ADMIN"
+  }
+}
+
+run "bad_email_and_role_are_refused" {
+  command = plan
+  variables {
+    admin_emails = ["not-an-email"]
+    admin_role   = "OWNER"
+  }
+  expect_failures = [var.admin_emails, var.admin_role]
+}

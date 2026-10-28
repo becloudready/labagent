@@ -52,3 +52,23 @@ variable "tags" {
   type    = map(string)
   default = {}
 }
+
+variable "admin_emails" {
+  type        = list(string)
+  default     = []
+  description = "Account users to give access to the workspace. They must already exist in the Databricks account."
+  validation {
+    condition     = alltrue([for e in var.admin_emails : can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", e))])
+    error_message = "admin_emails must be email addresses."
+  }
+}
+
+variable "admin_role" {
+  type        = string
+  default     = "ADMIN"
+  description = "ADMIN or USER, applied to every address in admin_emails."
+  validation {
+    condition     = contains(["ADMIN", "USER"], var.admin_role)
+    error_message = "admin_role must be ADMIN or USER."
+  }
+}
