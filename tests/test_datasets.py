@@ -57,7 +57,7 @@ def test_fetch_refuses_when_every_source_fails_the_checksum(tmp_path):
 def test_pinned_registry_entries_are_well_formed():
     for name, e in registry().items():
         assert e["url"].startswith("https://github.com/becloudready/labagent-datasets/releases/download/")
-        assert len(e["sha256"]) == 64 and e["bytes"] > 0 and name.startswith("sec-10k-")
+        assert len(e["sha256"]) == 64 and e["bytes"] > 0 and name.startswith(("sec-10k-", "lakehouse-"))
 
 
 def test_snapshot_source_feeds_the_pack_without_a_sec_contact(tmp_path, monkeypatch):
