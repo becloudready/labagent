@@ -281,6 +281,11 @@ def test_errors_are_cleaned_of_secrets_colour_and_emails(home):
     assert clean("x\n" * 40, {}).count("x") == 14
 
 
+def test_long_errors_keep_the_end_where_terraform_prints_the_reason():
+    out = clean("progress " + "p" * 3000 + "\nError: the real reason", {})
+    assert out.endswith("Error: the real reason") and len(out) <= 1800
+
+
 # ---- destroy ---------------------------------------------------------------------------------------------------------------------
 
 def created(home):

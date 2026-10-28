@@ -32,7 +32,7 @@ def clean(text: str, env: Optional[Dict[str, str]] = None, tail: int = 14) -> st
         if v and len(v) >= 6:
             text = text.replace(v, "<redacted>")
     lines = [EMAIL.sub("<redacted>", ln) for ln in text.strip().splitlines() if ln.strip()]
-    return "\n".join(lines[-tail:])[:1800]
+    return "\n".join(lines[-tail:])[-1800:]
 
 
 def summarize_plan(plan_json: Dict[str, Any]) -> Dict[str, Any]:
