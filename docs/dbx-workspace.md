@@ -57,9 +57,20 @@ It creates the workspace and its cloud plumbing only. It does not create users, 
 
 `backend=local` (default) keeps the Terraform state in `~/.labagent/packs/dbx-workspace/<name>.tfstate`. If you lose that file you lose track of the workspace, so use a remote backend for anything you keep: `--param backend=s3 --param state_bucket=<bucket>` or `--param backend=azurerm --param state_storage=<resource group>/<storage account>/<container>`. Runs on a CI runner need a remote backend, because the runner's disk disappears.
 
+## Give people access (AWS)
+
+The service principal that creates the workspace is its only user at first. Pass the emails of people who should get in:
+
+```bash
+labagent launch dbx-workspace --name team1 --param cloud=aws --param account_id=<id> \
+  --param admin_emails=you@example.com,colleague@example.com --param apply=yes
+```
+
+Each address becomes an `ADMIN` assignment on the workspace (`--param admin_role=USER` gives basic access instead). The address must already be a user in your Databricks account: the module looks it up and the run fails if it is not there. The emails go only into the private variables file and Terraform state, never into the pack's records or output. This uses account-level permission assignment, so it needs a workspace that supports identity federation. That was not confirmed against a real run yet. Azure is not covered.
+
 ## Options
 
-`cloud` (required), `region` (default `us-east-1` or `eastus2`), `network`, `apply`, `account_id` (AWS), `subscription_id` (Azure), `profile` (AWS), `hardened` (Azure), `owner`, `force_destroy` (AWS), `backend`, `state_bucket`, `state_storage`.
+`cloud` (required), `region` (default `us-east-1` or `eastus2`), `network`, `apply`, `account_id` (AWS), `subscription_id` (Azure), `profile` (AWS), `hardened` (Azure), `owner`, `admin_emails`, `admin_role` (AWS), `force_destroy` (AWS), `backend`, `state_bucket`, `state_storage`.
 
 ## What has been tested
 

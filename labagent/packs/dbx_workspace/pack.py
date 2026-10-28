@@ -53,6 +53,8 @@ class DatabricksWorkspace(Pack):
         Param("profile", None, "AWS: profile name for the AWS credentials"),
         Param("hardened", "no", "Azure premium extras: infrastructure encryption and automatic cluster updates (yes | no)"),
         Param("owner", "labagent", "Owner tag. Use a team name, not a personal email"),
+        Param("admin_emails", None, "AWS: comma-separated emails of existing Databricks account users to give access to the workspace"),
+        Param("admin_role", "ADMIN", "AWS: ADMIN | USER, the workspace role given to every address in admin_emails"),
         Param("force_destroy", "no", "AWS destroy: also delete the root bucket if it holds workspace files (yes | no)"),
         Param("backend", "local", "Terraform state: local | s3 | azurerm. Local state is lost with this folder: use s3 or azurerm for anything you keep"),
         Param("state_bucket", None, "backend=s3: bucket name (the key is dbx-workspace/<name>.tfstate)"),
@@ -85,9 +87,22 @@ class DatabricksWorkspace(Pack):
             raise PackError("hardened applies to Azure only")
         if cloud == "azure" and str(p["force_destroy"]).lower() == "yes":
             raise PackError("force_destroy applies to AWS only")
+        people = self._people(p["admin_emails"])
+        if people and cloud != "aws":
+            raise PackError("admin_emails applies to AWS only")
+        if str(p["admin_role"]).upper() not in ("ADMIN", "USER"):
+            raise PackError("admin_role must be ADMIN or USER")
         if str(p["owner"]).count("@"):
             raise PackError("owner is stored as a cloud tag: use a team name, not an email address")
         return {"cloud": cloud, "prefix": prefix, "region": p["region"] or DEFAULT_REGION[cloud]}
+
+    @staticmethod
+    def _people(raw: Any) -> List[str]:
+        out = [e.strip() for e in str(raw or "").split(",") if e.strip()]
+        bad = [e for e in out if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", e)]
+        if bad:
+            raise PackError(f"admin_emails has {len(bad)} entry that is not an email address. Separate addresses with commas")
+        return sorted(set(out))
 
     def _backend(self, ctx: PackContext, cloud: str, region: str) -> Dict[str, Any]:
         kind = ctx.params["backend"]
@@ -111,6 +126,8 @@ class DatabricksWorkspace(Pack):
         v: Dict[str, Any] = {"prefix": base["prefix"], "network": net, "owner": p["owner"]}
         if cloud == "aws":
             v.update(databricks_account_id=ctx.state["account_id"], region=base["region"], force_destroy=str(p["force_destroy"]).lower() == "yes")
+            if self._people(p["admin_emails"]):
+                v.update(admin_emails=self._people(p["admin_emails"]), admin_role=str(p["admin_role"]).upper())
         else:
             v.update(subscription_id=ctx.state["subscription_id"], location=base["region"], hardened=str(p["hardened"]).lower() == "yes")
         return v

@@ -387,3 +387,32 @@ def test_aws_role_policy_matches_who_creates_the_vpc():
     main = (MODULES / "databricks_aws" / "main.tf").read_text()
     assert 'policy_type = local.vpc ? "customer" : "managed"' in main
     assert "vpc  = var.network" in main.replace("  vpc ", "  vpc ")
+
+
+# ---- access for people (AWS) -----------------------------------------------------------------------------------------------------
+
+def test_admin_emails_reach_terraform_only_through_the_private_variables_file(home):
+    env, fake = aws(home, params={"admin_emails": "Bob@example.com, ada@example.com,ada@example.com", "admin_role": "user"})
+    assert env.status == "ok"
+    work = home / "home" / "packs" / "dbx-workspace" / "demo-tf"
+    v = json.loads((work / "terraform.tfvars.json").read_text())
+    assert v["admin_emails"] == ["Bob@example.com", "ada@example.com"] and v["admin_role"] == "USER"
+    leaked = json.dumps([c[0] for c in fake.calls]) + json.dumps(env.to_dict()) + json.dumps(load_state("dbx-workspace", "demo"))
+    assert "example.com" not in leaked
+
+
+def test_no_admin_emails_means_no_extra_variables(home):
+    env, _ = aws(home)
+    v = json.loads((home / "home" / "packs" / "dbx-workspace" / "demo-tf" / "terraform.tfvars.json").read_text())
+    assert "admin_emails" not in v and "admin_role" not in v
+
+
+def test_bad_admin_emails_and_roles_are_refused_before_anything_runs(home):
+    for params, word in (({"admin_emails": "not-an-email"}, "email"), ({"admin_emails": "a@example.com", "admin_role": "OWNER"}, "ADMIN or USER")):
+        env, fake = aws(home, params=params)
+        assert env.status == "failed" and word in env.error and fake.calls == []
+
+
+def test_admin_emails_is_refused_on_azure(home):
+    env, fake = azure(home, params={"admin_emails": "a@example.com"})
+    assert env.status == "failed" and "AWS only" in env.error and fake.calls == []
