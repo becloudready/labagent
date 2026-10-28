@@ -21,7 +21,7 @@ def main() -> int:
                            capture_output=True, text=True, check=True).stdout.split()
     bad = []
     for f in files:
-        if f.startswith(SKIP) or f in SKIP or f.endswith((".png", ".gif", ".jpg")):
+        if f.startswith(SKIP) or f in SKIP or f.endswith((".png", ".gif", ".jpg", ".terraform.lock.hcl")):      # lock files are provider hashes
             continue
         try:
             text = open(f, encoding="utf-8").read()

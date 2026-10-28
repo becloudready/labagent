@@ -35,6 +35,7 @@ labagent destroy rag-sec-tutorial --name demo    # removes the uploaded folder
 | `rag-sec-tutorial` | Nine notebooks that build RAG on a pinned SEC 10-K dataset one step at a time: embeddings, pgvector, hybrid search, filters, citations, an evaluation gate, and the deployed app. Each ends with a check cell | Databricks Free Edition |
 | `db-agent` | [db-agent](https://github.com/db-agent/db-agent) text-to-SQL over a Databricks sample dataset, pinned commit | Databricks Free Edition |
 | `rag-ide` | A private browser VS Code per learner with the RAG lab and notebooks | Modal, EC2 or local Docker |
+| `dbx-workspace` | A premium Databricks workspace in your own AWS account or Azure subscription, created with Terraform. Plan first: nothing is created without `apply=yes`. [Guide](docs/dbx-workspace.md) | AWS or Azure (costs apply) |
 | `aml` | A synthetic anti-money laundering lab with an answer key: a RAG lab for developers (`mode=rag`) and a Microsoft 365 Copilot lab for staff (`mode=copilot`), for Canada or the US. [Guide](docs/aml.md) | Your machine, no cloud account |
 
 Free Edition limits apply (one Lakebase project, three apps). Details: [docs/packs.md](docs/packs.md).

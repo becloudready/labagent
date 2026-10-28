@@ -11,7 +11,8 @@ def builtin() -> Dict[str, Pack]:
     from .db_agent.pack import DbAgent
     from .rag_ide.pack import RagIde
     from .aml.pack import AmlLab
-    return {p.id: p for p in (RagSecTutorial(), DbAgent(), RagIde(), AmlLab())}
+    from .dbx_workspace.pack import DatabricksWorkspace
+    return {p.id: p for p in (RagSecTutorial(), DbAgent(), RagIde(), AmlLab(), DatabricksWorkspace())}
 
 
 def all_packs() -> Dict[str, Pack]:
