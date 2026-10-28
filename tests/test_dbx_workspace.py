@@ -281,6 +281,14 @@ def test_errors_are_cleaned_of_secrets_colour_and_emails(home):
     assert clean("x\n" * 40, {}).count("x") == 14
 
 
+def test_failure_starts_at_the_error_block_not_the_progress_lines():
+    from labagent.packs.dbx_workspace.tf import failure
+    err = "Error: cannot create workspace: bad credentials\n\n  with databricks_mws_workspaces.this,\n  on main.tf line 179"
+    out = failure(err, "\n".join(f"res{i}: Creating..." for i in range(50)), {})
+    assert out.startswith("Error: cannot create workspace") and "Creating" not in out and len(out) <= 340
+    assert "boom" in failure("", "a\nboom", {})
+
+
 def test_long_errors_keep_the_end_where_terraform_prints_the_reason():
     out = clean("progress " + "p" * 3000 + "\nError: the real reason", {})
     assert out.endswith("Error: the real reason") and len(out) <= 1800

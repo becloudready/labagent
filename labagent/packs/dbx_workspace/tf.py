@@ -35,6 +35,16 @@ def clean(text: str, env: Optional[Dict[str, str]] = None, tail: int = 14) -> st
     return "\n".join(lines[-tail:])[-1800:]
 
 
+def failure(stderr: str, stdout: str, env: Optional[Dict[str, str]] = None, limit: int = 340) -> str:
+    """The reason for a failed run. Terraform prints it in an 'Error:' block on stderr. The framework keeps only the first 400
+    characters of a step error, so start at the first 'Error' line and drop the progress lines."""
+    lines = clean(stderr, env, tail=60).splitlines()
+    first = next((i for i, ln in enumerate(lines) if ln.lstrip().startswith("Error")), None)
+    if first is None:
+        return clean(stdout + "\n" + stderr, env)[-limit:]
+    return "\n".join(lines[first:])[:limit]
+
+
 def summarize_plan(plan_json: Dict[str, Any]) -> Dict[str, Any]:
     """Counts only: no values, so a plan summary is safe to log and to return."""
     out = {"add": 0, "change": 0, "destroy": 0, "replace": 0, "types": {}}
@@ -72,7 +82,7 @@ class Tf:
         env.pop("TF_LOG", None)                            # debug logs print request bodies
         p = self._run([self.binary(), *args], capture_output=True, text=True, env=env, cwd=str(self.dir))
         if p.returncode != 0:
-            raise PackError(f"terraform {args[0]} failed (exit {p.returncode}):\n{clean((p.stderr or '') + (p.stdout or ''), env)}")
+            raise PackError(f"terraform {args[0]} failed (exit {p.returncode}):\n{failure(p.stderr or '', p.stdout or '', env)}")
         return p.stdout or ""
 
     # ---- the module folder ---------------------------------------------------------------------------------------------------------
