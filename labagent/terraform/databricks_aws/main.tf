@@ -51,10 +51,12 @@ resource "aws_iam_role_policy" "cross_account" {
   policy = data.databricks_aws_crossaccount_policy.this.json
 }
 
-# IAM changes take a few seconds to spread; the credentials check in the next step fails without this pause.
+# IAM changes take a few seconds to spread; the credentials check fails without this pause. The trigger repeats the pause
+# whenever the policy changes, not only on the first run.
 resource "time_sleep" "iam_ready" {
   depends_on      = [aws_iam_role_policy.cross_account]
-  create_duration = "20s"
+  create_duration = "30s"
+  triggers        = { policy = sha256(aws_iam_role_policy.cross_account.policy) }
 }
 
 resource "databricks_mws_credentials" "this" {
@@ -189,4 +191,6 @@ resource "databricks_mws_workspaces" "this" {
   network_id               = local.vpc ? databricks_mws_networks.this[0].network_id : null
 
   custom_tags = local.tags
+
+  depends_on = [time_sleep.iam_ready] # the role's permissions are checked while the workspace is created
 }
