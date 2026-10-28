@@ -45,11 +45,17 @@ def failure(stderr: str, stdout: str, env: Optional[Dict[str, str]] = None, limi
     return "\n".join(lines[first:])[:limit]
 
 
+HOLDS_NO_DATA = {"time_sleep"}
+
+
 def summarize_plan(plan_json: Dict[str, Any]) -> Dict[str, Any]:
     """Counts only: no values, so a plan summary is safe to log and to return."""
     out = {"add": 0, "change": 0, "destroy": 0, "replace": 0, "types": {}}
     for rc in plan_json.get("resource_changes", []):
         actions = rc.get("change", {}).get("actions", [])
+        if rc.get("type") in HOLDS_NO_DATA and "delete" in actions:
+            out["change"] += 1                                 # a pause timer: replacing it loses nothing, so it must not trip the guard
+            continue
         if actions == ["create"]:
             out["add"] += 1
             out["types"][rc["type"]] = out["types"].get(rc["type"], 0) + 1

@@ -289,6 +289,15 @@ def test_failure_starts_at_the_error_block_not_the_progress_lines():
     assert "boom" in failure("", "a\nboom", {})
 
 
+def test_replacing_a_pause_timer_does_not_trip_the_replace_guard_but_a_workspace_does():
+    def rc(t, actions):
+        return {"type": t, "change": {"actions": actions}}
+    s = summarize_plan({"resource_changes": [rc("time_sleep", ["delete", "create"]), rc("databricks_mws_workspaces", ["create"])]})
+    assert s["replace"] == 0 and s["destroy"] == 0 and s["add"] == 1
+    s = summarize_plan({"resource_changes": [rc("databricks_mws_workspaces", ["delete", "create"])]})
+    assert s["replace"] == 1
+
+
 def test_long_errors_keep_the_end_where_terraform_prints_the_reason():
     out = clean("progress " + "p" * 3000 + "\nError: the real reason", {})
     assert out.endswith("Error: the real reason") and len(out) <= 1800
