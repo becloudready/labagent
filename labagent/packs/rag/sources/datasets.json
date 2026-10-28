@@ -4,5 +4,17 @@
     "sha256": "4a327bfab2eee9c466b297ae4a7f2480c40188bc20809ecd270794fc1294775e",
     "bytes": 523833,
     "chunks": 1880
+  },
+  "lakehouse-retail-2026.10": {
+    "kind": "tables",
+    "url": "https://github.com/becloudready/labagent-datasets/releases/download/lakehouse-2026.10/lakehouse-retail-2026.10.tables.zip",
+    "sha256": "5fa499b8c641553e30c4501f6f89dabc83d0dc8fe5594e41634b1d695e49dabd",
+    "bytes": 14946015
+  },
+  "lakehouse-healthcare-2026.10": {
+    "kind": "tables",
+    "url": "https://github.com/becloudready/labagent-datasets/releases/download/lakehouse-2026.10/lakehouse-healthcare-2026.10.tables.zip",
+    "sha256": "b3c0f5efcaefcd6161efc382316f78b42b0b37258dd9f68447cedfa30337753e",
+    "bytes": 1550408
   }
 }

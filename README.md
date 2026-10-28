@@ -36,6 +36,7 @@ labagent destroy rag-sec-tutorial --name demo    # removes the uploaded folder
 | `db-agent` | [db-agent](https://github.com/db-agent/db-agent) text-to-SQL over a Databricks sample dataset, pinned commit | Databricks Free Edition |
 | `rag-ide` | A private browser VS Code per learner with the RAG lab and notebooks | Modal, EC2 or local Docker |
 | `dbx-workspace` | A premium Databricks workspace in your own AWS account or Azure subscription, created with Terraform. Plan first: nothing is created without `apply=yes`. AWS can add your users to the workspace. [Guide](docs/dbx-workspace.md) | AWS or Azure (costs apply) |
+| `dbx-lakehouse` | A ready-to-teach medallion lakehouse: bronze, silver and gold tables in Unity Catalog from real open data (online retail, synthetic healthcare), with masks, a row filter, SQL notebooks and exercises. [Guide](docs/dbx-lakehouse.md) | Databricks Free Edition, AWS or Azure |
 | `aml` | A synthetic anti-money laundering lab with an answer key: a RAG lab for developers (`mode=rag`) and a Microsoft 365 Copilot lab for staff (`mode=copilot`), for Canada or the US. [Guide](docs/aml.md) | Your machine, no cloud account |
 
 Free Edition limits apply (one Lakebase project, three apps). Details: [docs/packs.md](docs/packs.md).
@@ -64,6 +65,16 @@ labagent destroy dbx-workspace --name team1 --param cloud=aws --param account_id
 Azure works the same with `--param cloud=azure` and `LABAGENT_ALLOWED_SUBSCRIPTIONS` after `az login`. It needs the Terraform CLI (1.9 or later) or OpenTofu. Nothing is created without `apply=yes`, and the pack refuses accounts that are not on the allow list.
 
 Status: the AWS workspace with a Databricks-created network has been created end to end in a real account. Azure, `network=custom` and `admin_emails` are tested only with mocked providers so far. See [docs/dbx-workspace.md](docs/dbx-workspace.md).
+
+## Teaching lakehouse (bronze, silver, gold)
+
+```bash
+databricks auth login
+labagent launch dbx-lakehouse --name lab1                      # retail + healthcare, built and checked
+labagent destroy dbx-lakehouse --name lab1                     # drops what the pack created
+```
+
+Real open data (UCI Online Retail II, Synthea synthetic patients) carried through all three layers in Unity Catalog, with column masks, a row filter, a sandbox schema, and SQL notebooks with exercises. Needs only a SQL warehouse, so it runs on Free Edition, AWS and Azure. Status: built and destroyed on Databricks Free Edition. AWS and Azure not run yet. See [docs/dbx-lakehouse.md](docs/dbx-lakehouse.md).
 
 ## Web IDE per learner (unreleased: install from GitHub)
 

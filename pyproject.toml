@@ -66,6 +66,8 @@ labagent = [
   "packs/*/app/*",
   "packs/*/app/static/*",
   "packs/*/tutorial/notebooks/*.py",
+  "packs/*/sql/*/*.sql",
+  "packs/*/guides/*.md",
 ]
 
 [tool.pytest.ini_options]
