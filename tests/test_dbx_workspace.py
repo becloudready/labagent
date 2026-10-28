@@ -371,3 +371,10 @@ def test_modules_pin_providers_and_ship_lock_files_for_every_platform():
         assert len(re.findall(r'^provider "', lock, re.M)) == len(providers)
         assert lock.count("h1:") >= len(providers) and "zh:" in lock
         assert (d / "tests" / "workspace.tftest.hcl").exists()
+
+
+def test_aws_role_policy_matches_who_creates_the_vpc():
+    """A Databricks-created VPC needs the 'managed' policy. 'customer' lacks the VPC rights and fails the credentials check."""
+    main = (MODULES / "databricks_aws" / "main.tf").read_text()
+    assert 'policy_type = local.vpc ? "customer" : "managed"' in main
+    assert "vpc  = var.network" in main.replace("  vpc ", "  vpc ")

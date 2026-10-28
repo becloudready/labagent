@@ -12,8 +12,9 @@ provider "aws" {
 }
 
 provider "databricks" {
-  alias = "mws"
-  host  = "https://accounts.cloud.databricks.com"
+  alias      = "mws"
+  host       = "https://accounts.cloud.databricks.com"
+  account_id = var.databricks_account_id # OAuth for the account API needs it at the provider too
 }
 
 resource "random_id" "suffix" {
@@ -38,9 +39,10 @@ resource "aws_iam_role" "cross_account" {
   assume_role_policy = data.databricks_aws_assume_role_policy.this.json
 }
 
+# "managed" lets Databricks create the VPC; "customer" is for a VPC we create. Using the wrong one fails the credentials check.
 data "databricks_aws_crossaccount_policy" "this" {
   provider    = databricks.mws
-  policy_type = "customer"
+  policy_type = local.vpc ? "customer" : "managed"
 }
 
 resource "aws_iam_role_policy" "cross_account" {
