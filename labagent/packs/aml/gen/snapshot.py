@@ -21,7 +21,7 @@ class Snapshot(Generator):
         with tempfile.TemporaryDirectory() as tmp:
             folder = fetch_table_snapshot(dataset, Path(tmp), download=self.download, entry=self.entry)
             tables = read_csv(folder)
-            prov = json.loads((folder / "provenance.json").read_text())
+            prov = json.loads((folder / "provenance.json").read_text(encoding="utf-8"))
         problems = validate(tables)
         if problems:
             raise DatasetError("the snapshot failed validation: " + "; ".join(problems[:3]))

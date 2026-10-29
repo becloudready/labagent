@@ -75,7 +75,7 @@ def references(folder: Path = HERE, upstream: Sequence[Path] = ()) -> Dict[str, 
     found: Dict[str, str] = {}
     for src in (*upstream, folder):
         for path in sources(Path(src)):
-            for kind, body in _parse(path.read_text()):
+            for kind, body in _parse(path.read_text(encoding="utf-8")):
                 if kind != "code":
                     continue
                 for line in body.splitlines():
@@ -92,7 +92,7 @@ def _markdown(body: str) -> str:
 
 def cells(path: Path, keep: str, upstream: Sequence[Path] = ()) -> List[Tuple[str, str]]:
     ref = references(path.parent, upstream)
-    return [(kind, _markdown(body) if kind == "markdown" else _blocks(body, keep, ref)) for kind, body in _parse(path.read_text())]
+    return [(kind, _markdown(body) if kind == "markdown" else _blocks(body, keep, ref)) for kind, body in _parse(path.read_text(encoding="utf-8"))]
 
 
 def notebook(path: Path, keep: str, upstream: Sequence[Path] = ()) -> str:
@@ -119,4 +119,4 @@ def solution(folder: Path = HERE, upstream: Sequence[Path] = ()) -> Dict[str, st
 
 def sample_docs() -> Dict[str, str]:
     """data/sample_docs/<name>.md for the additional documents."""
-    return {f"data/sample_docs/{p.name}": p.read_text() for p in sorted(DOCS.glob("*.md"))}
+    return {f"data/sample_docs/{p.name}": p.read_text(encoding="utf-8") for p in sorted(DOCS.glob("*.md"))}

@@ -191,7 +191,7 @@ class DbAgent(Pack):
                 shutil.copytree(self._checkout(c) / "app", bundle, ignore=IGNORE)
                 (bundle / "app.yaml").write_text(APP_YAML.format(
                     host=c.state["host"], http_path=f"/sql/1.0/warehouses/{c.state['warehouse_id']}", catalog=c.params["catalog"],
-                    schema=schema_name, chat=c.state["chat_endpoint"], embed=c.state["embedding_endpoint"], agent_id=app_name))
+                    schema=schema_name, chat=c.state["chat_endpoint"], embed=c.state["embedding_endpoint"], agent_id=app_name), encoding="utf-8")
                 path = f"/Users/{c.state['user']}/labagent/{app_name}"
                 d().text("workspace", "import-dir", str(bundle), path, "--overwrite")
             d().text("apps", "deploy", app_name, "--source-code-path", f"/Workspace{path}")

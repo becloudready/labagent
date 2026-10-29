@@ -44,7 +44,7 @@ class AzureAuth:
         if all(e.get(k) for k in ("ARM_CLIENT_ID", "ARM_CLIENT_SECRET", "ARM_TENANT_ID", "ARM_SUBSCRIPTION_ID")):
             return e["ARM_SUBSCRIPTION_ID"], "service principal"
         try:
-            p = self._run(["az", "account", "show", "--output", "json"], capture_output=True, text=True, env=e)
+            p = self._run(["az", "account", "show", "--output", "json"], capture_output=True, text=True, encoding="utf-8", errors="replace", env=e)
         except FileNotFoundError:
             raise PackError("the Azure CLI was not found. Install it and run: az login   (or set the ARM_* service principal variables)") from None
         if p.returncode != 0:

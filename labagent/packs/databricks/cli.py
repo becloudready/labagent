@@ -34,7 +34,7 @@ class Dbx:
         cmd = [self.binary(), *args]
         if self.profile:
             cmd += ["--profile", self.profile]
-        p = self._run(cmd, capture_output=True, text=True, input=stdin)
+        p = self._run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", input=stdin)
         if p.returncode != 0:
             raise PackError(f"databricks {args[0]} {args[1] if len(args) > 1 else ''} failed: {redact(p.stderr or p.stdout)}")
         return p.stdout

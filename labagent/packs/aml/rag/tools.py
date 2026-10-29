@@ -26,13 +26,13 @@ def open_client(out_dir: Path, settings_update: Optional[Dict[str, Any]] = None)
     """Open the lab's index. If the index is empty (a fresh checkout, or a memory store), rebuild it from corpus/chunks.jsonl."""
     from ....ai.rag import RAGLabClient
     from ....ai.rag.config import RAGSettings
-    cfg = json.loads((out_dir / CONFIG).read_text())
+    cfg = json.loads((out_dir / CONFIG).read_text(encoding="utf-8"))
     s = RAGSettings.from_env().model_copy(update={"chroma_path": str(out_dir / "index"), "collection": "aml_lab",
                                                   **({"embedding_model_name": "hashing"} if cfg.get("embedder") == "hashing" else {}),
                                                   **(settings_update or {})})
     client = RAGLabClient(settings=s)
     if client.store.count() == 0:
-        rows = [json.loads(l) for l in (out_dir / CHUNKS).read_text().splitlines() if l.strip()]
+        rows = [json.loads(l) for l in (out_dir / CHUNKS).read_text(encoding="utf-8").splitlines() if l.strip()]
         client.ingest_chunks(rows)
     return client
 
@@ -40,7 +40,7 @@ def open_client(out_dir: Path, settings_update: Optional[Dict[str, Any]] = None)
 class AmlLab:
     def __init__(self, out_dir: Union[str, Path] = ".", client: Any = None):
         self.dir = Path(out_dir)
-        self.config = json.loads((self.dir / CONFIG).read_text())
+        self.config = json.loads((self.dir / CONFIG).read_text(encoding="utf-8"))
         self.tables = read_csv(self.dir / "tables", only=[n for n in TABLES if n != "ground_truth"])
         key = self.dir / "answer_key"
         if (key / "ground_truth.csv").exists():                 # the answer key is kept apart: open it after you have decided

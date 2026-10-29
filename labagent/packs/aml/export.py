@@ -26,5 +26,5 @@ def write_dataset(ds: Dataset, out_dir: Path, parquet: str = "auto") -> List[str
         except ImportError:
             if parquet == "yes":
                 raise
-    (out_dir / PROVENANCE).write_text(json.dumps(provenance(ds), indent=2, sort_keys=True) + "\n")
+    (out_dir / PROVENANCE).write_text(json.dumps(provenance(ds), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return files + [PROVENANCE]

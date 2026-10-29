@@ -229,7 +229,7 @@ class DatabricksLakehouse(Pack):
                 sql.run(f"CREATE VOLUME IF NOT EXISTS {cat}.{dom.schema('bronze')}.landing COMMENT 'Raw files exactly as delivered'")
                 folder = self._snapshot(c, dom)
                 try:
-                    prov = json.loads((folder / "provenance.json").read_text())
+                    prov = json.loads((folder / "provenance.json").read_text(encoding="utf-8"))
                     landing = f"/Volumes/{cat}/{dom.schema('bronze')}/landing"
                     made: set = set()
                     sent = 0
@@ -255,7 +255,7 @@ class DatabricksLakehouse(Pack):
                 skipped = []
                 for nb in dom.notebooks:
                     n = 0
-                    for cell in notebook.cells(notebook.substitute((SQL_DIR / dom.id / nb).read_text(), values)):
+                    for cell in notebook.cells(notebook.substitute((SQL_DIR / dom.id / nb).read_text(encoding="utf-8"), values)):
                         try:
                             sql.run(cell.sql, label=f"{dom.id}/{nb}: {cell.label}")
                             n += 1
@@ -299,7 +299,7 @@ class DatabricksLakehouse(Pack):
                 def govern(c: PackContext, dom: Domain = dom):
                     sql, values = self._sql(c), self._values(c)
                     skipped = []
-                    for cell in notebook.cells(notebook.substitute((SQL_DIR / dom.id / dom.governance).read_text(), values)):
+                    for cell in notebook.cells(notebook.substitute((SQL_DIR / dom.id / dom.governance).read_text(encoding="utf-8"), values)):
                         try:
                             sql.run(cell.sql, label=f"{dom.id}/{dom.governance}: {cell.label}")
                         except PackError as e:
@@ -344,14 +344,14 @@ class DatabricksLakehouse(Pack):
             with tempfile.TemporaryDirectory() as tmp:
                 bundle = Path(tmp) / "bundle"
                 bundle.mkdir()
-                (bundle / "START_HERE.md").write_text(notebook.substitute((GUIDES / "START_HERE.md").read_text(), values))
+                (bundle / "START_HERE.md").write_text(notebook.substitute((GUIDES / "START_HERE.md").read_text(encoding="utf-8"), values), encoding="utf-8")
                 for dom_id in self._check(c)["domains"]:
                     dom = DOMAINS[dom_id]
                     out = bundle / dom.id
                     out.mkdir()
                     for nb in (*dom.notebooks, *([dom.governance] if dom.governance else [])):
-                        (out / nb).write_text(notebook.substitute((SQL_DIR / dom.id / nb).read_text(), values))
-                    (out / "GUIDE.md").write_text(notebook.substitute((GUIDES / f"{dom.id}.md").read_text(), values))
+                        (out / nb).write_text(notebook.substitute((SQL_DIR / dom.id / nb).read_text(encoding="utf-8"), values), encoding="utf-8")
+                    (out / "GUIDE.md").write_text(notebook.substitute((GUIDES / f"{dom.id}.md").read_text(encoding="utf-8"), values), encoding="utf-8")
                 d().text("workspace", "mkdirs", path)
                 d().text("workspace", "import-dir", str(bundle), path, "--overwrite")
             status = d().json("workspace", "get-status", path)

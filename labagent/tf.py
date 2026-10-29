@@ -48,7 +48,7 @@ class Terraform:
         env = {**os.environ, "TF_DATA_DIR": str(data_dir), "TF_IN_AUTOMATION": "1", "TF_INPUT": "0",
                "CHECKPOINT_DISABLE": "1", **(env_extra or {})}
         cmd = [self.binary(), f"-chdir={self.module_dir}", *args]
-        p = self._run(cmd, capture_output=True, text=True, env=env)
+        p = self._run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
         if p.returncode != 0:
             raise TerraformError(f"terraform {args[0]} failed (exit {p.returncode}): {redact(p.stderr or p.stdout)}")
         return p.stdout

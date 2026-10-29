@@ -86,7 +86,7 @@ class Tf:
     def _exec(self, args: List[str], extra_env: Optional[Dict[str, str]] = None) -> str:
         env = {**self.env, "TF_IN_AUTOMATION": "1", "TF_INPUT": "0", "CHECKPOINT_DISABLE": "1", **(extra_env or {})}
         env.pop("TF_LOG", None)                            # debug logs print request bodies
-        p = self._run([self.binary(), *args], capture_output=True, text=True, env=env, cwd=str(self.dir))
+        p = self._run([self.binary(), *args], capture_output=True, text=True, encoding="utf-8", errors="replace", env=env, cwd=str(self.dir))
         if p.returncode != 0:
             raise PackError(f"terraform {args[0]} failed (exit {p.returncode}):\n{failure(p.stderr or '', p.stdout or '', env)}")
         return p.stdout or ""
@@ -99,7 +99,7 @@ class Tf:
             shutil.rmtree(self.dir)
         shutil.copytree(src, self.dir, ignore=shutil.ignore_patterns(".terraform", "tests", "*.tfstate*", "plan.bin"))
         kind = backend["type"]
-        (self.dir / "backend.tf").write_text(f'terraform {{\n  backend "{kind}" {{}}\n}}\n')
+        (self.dir / "backend.tf").write_text(f'terraform {{\n  backend "{kind}" {{}}\n}}\n', encoding="utf-8")
         fd = os.open(self.dir / "terraform.tfvars.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f:
             json.dump(variables, f, indent=2, sort_keys=True)

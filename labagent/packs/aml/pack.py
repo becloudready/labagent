@@ -205,7 +205,7 @@ class AmlLab(Pack):
         cfg = {"institution": "Maple Ridge Credit Union", "name": ctx.name, "jurisdiction": p["jurisdiction"], "mode": p["mode"],
                "regulations": p["regulations"] != "skip", "embedder": p["embedder"], "seed": int(p["seed"]), "size": p["size"],
                "sample_alert": ctx.state.get("sample_alert", "AL00001"), "solutions": p["solutions"] == "yes"}
-        (out / tools.CONFIG).write_text(json.dumps(cfg, indent=2, sort_keys=True) + "\n")
+        (out / tools.CONFIG).write_text(json.dumps(cfg, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         return cfg
 
     # ---- steps -----------------------------------------------------------------------------------------------------------------
@@ -220,7 +220,7 @@ class AmlLab(Pack):
             if out.exists() and not (out / MARKER).exists() and any(out.iterdir()):
                 raise PackError(f"{out} already exists and was not created by this pack. Choose another folder with --param out=...")
             out.mkdir(parents=True, exist_ok=True)
-            (out / MARKER).write_text("created by labagent pack aml\n")
+            (out / MARKER).write_text("created by labagent pack aml\n", encoding="utf-8")
             return {"out_dir": str(out), "mode": "copilot", "platform": "local", "jurisdiction": c.params["jurisdiction"], "created": [MARKER]}
 
         def data(c: PackContext):
@@ -281,7 +281,7 @@ class AmlLab(Pack):
             if out.exists() and not (out / MARKER).exists() and any(out.iterdir()):
                 raise PackError(f"{out} already exists and was not created by this pack. Choose another folder with --param out=...")
             out.mkdir(parents=True, exist_ok=True)
-            (out / MARKER).write_text("created by labagent pack aml\n")
+            (out / MARKER).write_text("created by labagent pack aml\n", encoding="utf-8")
             return {"out_dir": str(out), "mode": c.params["mode"], "platform": "local", "jurisdiction": c.params["jurisdiction"]}
 
         def data(c: PackContext):
@@ -295,7 +295,7 @@ class AmlLab(Pack):
                 raise PackError("generated data failed validation: " + "; ".join(problems[:3]))
             write_csv(ds.tables, out / "tables", only=[n for n in TABLES if n != "ground_truth"])
             write_csv(ds.tables, out / "answer_key", only=["ground_truth"])
-            (out / "tables" / "provenance.json").write_text(json.dumps({"sources": ds.sources, "info": ds.info}, indent=2, sort_keys=True) + "\n")
+            (out / "tables" / "provenance.json").write_text(json.dumps({"sources": ds.sources, "info": ds.info}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
             first = next((g["alert_id"] for g in ds.tables["ground_truth"] if g["label"] == "escalate"), "AL00001")
             return {"counts": table_counts(ds.tables), "sample_alert": first, "data_sources": ds.sources}
 
@@ -310,7 +310,7 @@ class AmlLab(Pack):
             except (OSError, ValueError) as e:
                 raise PackError(f"could not download the regulation text ({type(e).__name__}). Check your network, or launch with --param regulations=skip") from e
             (out / "corpus").mkdir(exist_ok=True)
-            (out / "corpus" / "chunks.jsonl").write_text("\n".join(json.dumps(x, ensure_ascii=False, sort_keys=True) for x in chunks) + "\n")
+            (out / "corpus" / "chunks.jsonl").write_text("\n".join(json.dumps(x, ensure_ascii=False, sort_keys=True) for x in chunks) + "\n", encoding="utf-8")
             docs = D.policy_documents(c.params["jurisdiction"]) + D.case_documents(tables, c.params["jurisdiction"])
             corpus_build.write_markdown(docs, out / "data")
             if want_regs:
@@ -323,13 +323,13 @@ class AmlLab(Pack):
                     body = [f"# {inst}", "", rows[0]["meta"]["notice"], ""]
                     for x in rows:
                         body += [f"## {x['title']}", "", x["content"], ""]
-                    (out / "data" / f"regulation-{slug}.md").write_text("\n".join(body))
+                    (out / "data" / f"regulation-{slug}.md").write_text("\n".join(body), encoding="utf-8")
             return {"chunks": len(chunks), "documents": len(docs)}
 
         def index(c: PackContext):
             self._write_config(c, out)
             client = self._client(c, out)
-            rows = [json.loads(l) for l in (out / "corpus" / "chunks.jsonl").read_text().splitlines() if l.strip()]
+            rows = [json.loads(l) for l in (out / "corpus" / "chunks.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
             res = client.ingest_chunks(rows)
             return {"indexed_chunks": res.chunks, "embedding_model": getattr(client.embedder, "name", "unknown")}
 
@@ -348,8 +348,8 @@ class AmlLab(Pack):
 
         def guide(c: PackContext):
             cfg = self._write_config(c, out)
-            (out / GUIDE).write_text(guide_text(cfg, c.state["quality_full"]))
-            (out / SHIM).write_text(SHIM_TEXT)
+            (out / GUIDE).write_text(guide_text(cfg, c.state["quality_full"]), encoding="utf-8")
+            (out / SHIM).write_text(SHIM_TEXT, encoding="utf-8")
             return {"guide": str(out / GUIDE)}
 
         def notebooks(c: PackContext):
@@ -361,7 +361,7 @@ class AmlLab(Pack):
             for rel, content in files.items():
                 path = out / rel
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(content)
+                path.write_text(content, encoding="utf-8")
                 written.append(rel)
             return {"notebooks": sorted(written)}
 
@@ -395,7 +395,7 @@ class AmlLab(Pack):
             from . import lab
             for rel, content in lab.student().items():     # a notebook the learner has edited is their work: keep it
                 path = out / rel
-                if path.is_file() and path.read_text() == content:
+                if path.is_file() and path.read_text(encoding="utf-8") == content:
                     path.unlink()
             for rel in c.state.get("created", []):        # copilot mode lists every file it wrote: delete those, keep anything else
                 path = out / rel

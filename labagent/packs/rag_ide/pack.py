@@ -187,10 +187,10 @@ class RagIde(Pack):
         path = creds_path(ctx.name)
         old: Dict[str, str] = {}
         if path.exists():
-            old = {r["learner"]: r["password"] for r in csv.DictReader(path.open())}
+            old = {r["learner"]: r["password"] for r in csv.DictReader(path.open(encoding="utf-8"))}
         pw = {**old, **ctx.mem.get("passwords", {})}
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", newline="") as f:
+        with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
             w.writerow(["learner", "url", "password"])
             for n, info in sorted(ctx.state["learners"].items()):

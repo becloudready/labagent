@@ -69,7 +69,7 @@ def load_rows():
             path.write_bytes(r.read())
     if sha(path) != SNAPSHOT_SHA256:
         raise RuntimeError("the downloaded dataset does not match its checksum: do not use it")
-    return [json.loads(line) for line in gzip.open(path, "rt")]
+    return [json.loads(line) for line in gzip.open(path, "rt", encoding="utf-8")]
 
 
 def embed(texts):

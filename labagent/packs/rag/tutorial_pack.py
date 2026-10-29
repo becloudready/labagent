@@ -37,7 +37,7 @@ def _items(resp: Any, key: str) -> List[Dict[str, Any]]:
 
 
 def notebook_text(name: str, replacements: Dict[str, str]) -> str:
-    text = (NOTEBOOKS / name).read_text()
+    text = (NOTEBOOKS / name).read_text(encoding="utf-8")
     for key, value in replacements.items():
         text = text.replace(f"__{key}__", value)
     return text
@@ -90,9 +90,9 @@ class RagSecTutorial(Pack):
                 bundle = Path(tmp) / "bundle"
                 bundle.mkdir()
                 for nb in sorted(NOTEBOOKS.glob("*.py")):
-                    (bundle / nb.name).write_text(notebook_text(nb.name, repl))
+                    (bundle / nb.name).write_text(notebook_text(nb.name, repl), encoding="utf-8")
                 shutil.copytree(APP, bundle / "app", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-                (bundle / "app" / "ui.json").write_text(json.dumps(ui, indent=1))
+                (bundle / "app" / "ui.json").write_text(json.dumps(ui, indent=1), encoding="utf-8")
                 d().text("workspace", "mkdirs", path)
                 d().text("workspace", "import-dir", str(bundle), path, "--overwrite")
             return {"workspace_path": path, "notebooks": len(list(NOTEBOOKS.glob("*.py")))}

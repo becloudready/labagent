@@ -104,13 +104,13 @@ def state_path(pack_id: str, name: str) -> Path:
 
 def load_state(pack_id: str, name: str) -> Dict[str, Any]:
     p = state_path(pack_id, name)
-    return json.loads(p.read_text()) if p.exists() else {}
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
 
 
 def save_state(pack_id: str, name: str, state: Dict[str, Any]) -> None:
     p = state_path(pack_id, name)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(state, indent=2, sort_keys=True))
+    p.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
     p.chmod(0o600)
 
 

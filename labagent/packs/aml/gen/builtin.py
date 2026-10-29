@@ -371,7 +371,7 @@ class _Build:
         self.case("dismiss", "none", rule, acct, [acct], keys, why, a, t0 + 1, (15, 35))
 
     def sanctions_cases(self) -> None:
-        entries = json.loads((DATA / "sdn_seed.json").read_text())
+        entries = json.loads((DATA / "sdn_seed.json").read_text(encoding="utf-8"))
         meta = {"list_date": entries["list_date"]}
         n_exact, n_fuzzy = self.cfg["sanctions"]
         biz = self.established("business")
