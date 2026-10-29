@@ -81,7 +81,7 @@ def test_launch_builds_the_lab_folder_and_reports_quality(home):
 def test_launch_is_resumable_and_a_second_run_skips_everything(home):
     launch(home)
     again = launch(home)
-    assert again.status == "ok" and again.summary["skipped"] == 6 and again.summary["done"] == 0
+    assert again.status == "ok" and again.summary["skipped"] == 7 and again.summary["done"] == 0
 
 
 def test_regulation_text_is_in_the_lab_unless_skipped(home):
@@ -253,3 +253,31 @@ def test_open_client_builds_the_real_client_and_rebuilds_an_empty_index(home):
     assert client.store.count() > 20
     lab = Lab(home / "lab")
     assert lab.ask("When must a suspicious transaction report be filed?", doc_type="policy").chunks
+
+
+def test_launch_writes_the_build_it_yourself_notebooks_and_the_guide_names_them(home):
+    launch(home)
+    out = home / "lab"
+    names = sorted(p.name for p in (out / "notebooks").glob("*.ipynb"))
+    assert names == ["01_policy_search.ipynb", "02_evidence_bundle.ipynb", "03_citations_and_narrative.ipynb", "04_triage_and_evaluation.ipynb"]
+    assert not (out / "solutions").exists()
+    guide = (out / "LAB_GUIDE.md").read_text()
+    assert "01_policy_search" in guide and "The demo" in guide and "solutions/" not in guide
+
+
+def test_instructor_solutions_are_written_only_when_asked(home):
+    launch(home, solutions="yes")
+    out = home / "lab"
+    assert len(list((out / "solutions").glob("*.ipynb"))) == 4
+    assert "solutions/" in (out / "LAB_GUIDE.md").read_text()
+    bad = launch(home, out=str(home / "other"), solutions="maybe")
+    assert bad.status == "failed" and "solutions" in bad.error
+
+
+def test_destroy_keeps_a_notebook_the_learner_edited_and_removes_the_rest(home):
+    launch(home)
+    out = home / "lab"
+    mine = out / "notebooks" / "02_evidence_bundle.ipynb"
+    mine.write_text(mine.read_text().replace("TODO", "DONE", 1))
+    run_pack(AmlLab(), "destroy", "t", {"out": str(out)}, services={})
+    assert mine.exists() and not (out / "notebooks" / "01_policy_search.ipynb").exists() and not (out / "tables").exists()

@@ -14,14 +14,14 @@ exercise with a line `#### REFERENCE name`, which is replaced by that whole solv
 """
 import json
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 HERE = Path(__file__).parent
 DOCS = HERE / "docs"
 
 
-def sources() -> List[Path]:
-    return sorted(p for p in HERE.glob("[0-9][0-9]_*.py"))
+def sources(folder: Path = HERE) -> List[Path]:
+    return sorted(p for p in Path(folder).glob("[0-9][0-9]_*.py"))
 
 
 def _parse(text: str) -> List[Tuple[str, str]]:
@@ -66,18 +66,23 @@ def _blocks(code: str, keep: str, ref: Dict[str, str]) -> str:
     return "\n".join(out)
 
 
-def references() -> Dict[str, str]:
-    """name -> the whole solved code cell that contains `#### SOLUTION name`, across the notebooks."""
+def references(folder: Path = HERE, upstream: Sequence[Path] = ()) -> Dict[str, str]:
+    """name -> the whole solved code cell that contains `#### SOLUTION name`, across the notebooks of `folder`.
+
+    `upstream` lists other lab folders whose named solutions may also be referenced (read first, in order). A reference inside a
+    reference is resolved with the names found so far, so an earlier name can be used by a later one.
+    """
     found: Dict[str, str] = {}
-    for path in sources():
-        for kind, body in _parse(path.read_text()):
-            if kind != "code":
-                continue
-            for line in body.splitlines():
-                tag = line.strip()
-                if tag.startswith("#### SOLUTION ") and tag[len("#### SOLUTION "):].strip():
-                    found[tag[len("#### SOLUTION "):].strip()] = _blocks(body, "solution", {}).rstrip()
-                    break
+    for src in (*upstream, folder):
+        for path in sources(Path(src)):
+            for kind, body in _parse(path.read_text()):
+                if kind != "code":
+                    continue
+                for line in body.splitlines():
+                    tag = line.strip()
+                    if tag.startswith("#### SOLUTION ") and tag[len("#### SOLUTION "):].strip():
+                        found[tag[len("#### SOLUTION "):].strip()] = _blocks(body, "solution", found).rstrip()
+                        break
     return found
 
 
@@ -85,14 +90,14 @@ def _markdown(body: str) -> str:
     return "\n".join(l[2:] if l.startswith("# ") else l[1:] if l.startswith("#") else l for l in body.splitlines())
 
 
-def cells(path: Path, keep: str) -> List[Tuple[str, str]]:
-    ref = references()
+def cells(path: Path, keep: str, upstream: Sequence[Path] = ()) -> List[Tuple[str, str]]:
+    ref = references(path.parent, upstream)
     return [(kind, _markdown(body) if kind == "markdown" else _blocks(body, keep, ref)) for kind, body in _parse(path.read_text())]
 
 
-def notebook(path: Path, keep: str) -> str:
+def notebook(path: Path, keep: str, upstream: Sequence[Path] = ()) -> str:
     nb_cells = []
-    for i, (kind, body) in enumerate(cells(path, keep)):
+    for i, (kind, body) in enumerate(cells(path, keep, upstream)):
         c = {"cell_type": kind, "metadata": {}, "id": f"cell{i:02d}", "source": body.splitlines(True)}
         if kind == "code":
             c.update({"execution_count": None, "outputs": []})
@@ -102,14 +107,14 @@ def notebook(path: Path, keep: str) -> str:
     return json.dumps(nb, indent=1) + "\n"
 
 
-def student() -> Dict[str, str]:
+def student(folder: Path = HERE, upstream: Sequence[Path] = ()) -> Dict[str, str]:
     """notebooks/<name>.ipynb -> content, the learner versions (stubs)."""
-    return {f"notebooks/{p.stem}.ipynb": notebook(p, "student") for p in sources()}
+    return {f"notebooks/{p.stem}.ipynb": notebook(p, "student", upstream) for p in sources(folder)}
 
 
-def solution() -> Dict[str, str]:
+def solution(folder: Path = HERE, upstream: Sequence[Path] = ()) -> Dict[str, str]:
     """solutions/<name>.ipynb -> content, the instructor versions."""
-    return {f"solutions/{p.stem}.ipynb": notebook(p, "solution") for p in sources()}
+    return {f"solutions/{p.stem}.ipynb": notebook(p, "solution", upstream) for p in sources(folder)}
 
 
 def sample_docs() -> Dict[str, str]:
