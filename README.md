@@ -91,7 +91,7 @@ labagent launch rag-ide --name cohort --param learners=2 --param platform=modal
 
 Each learner gets a URL and a password (credentials file, mode 0600). Sessions stop when idle and at a time cap (`hours`, default 4). Tested with small cohorts, not at 30 learners.
 
-There is also a laptop-only RAG lab: `pip install 'labagent[rag-local]'`, then `labagent rag init` and `labagent rag ide`.
+There is also a laptop-only, zero-cost RAG lab where learners build a chunker, a vector store, hybrid search and an evaluation themselves, one notebook at a time: `labagent rag init`. See [docs/rag-local.md](docs/rag-local.md).
 
 ## AWS sandboxes
 

@@ -28,17 +28,18 @@ def make(tmp_path, **kw):
 def test_init_creates_project_and_refuses_overwrite(tmp_path, capsys):
     assert rag_cli.init(tmp_path) == 0
     assert (tmp_path / ".env").stat().st_mode & 0o777 == 0o600
-    nb = json.loads((tmp_path / "notebooks" / "01_build_your_first_rag.ipynb").read_text())
-    assert nb["nbformat"] == 4 and any("RAGLabClient" in "".join(c["source"]) for c in nb["cells"])
-    assert len(list((tmp_path / "data" / "sample_docs").iterdir())) == 3
-    assert (tmp_path / "src" / "main.py").is_file() and (tmp_path / "notebooks" / "01_build_your_first_rag.ipynb").is_file()
+    nb = json.loads((tmp_path / "notebooks" / "01_chunking.ipynb").read_text())
+    assert nb["nbformat"] == 4 and any("def chunk_fixed" in "".join(c["source"]) for c in nb["cells"])
+    assert len(list((tmp_path / "data" / "sample_docs").iterdir())) == 8
+    assert (tmp_path / "src" / "main.py").is_file() and (tmp_path / "README.md").is_file()
+    assert len(list((tmp_path / "notebooks").glob("*.ipynb"))) == 9 and not (tmp_path / "solutions").exists()
     assert rag_cli.init(tmp_path) == 2 and "--force" in capsys.readouterr().err
 
 
 def test_ingest_query_inspect_reset(tmp_path):
     c = make(tmp_path)
     r = c.ingest_documents([tmp_path / "data", tmp_path / "missing.md", tmp_path / ".env"])
-    assert r.documents == 2 + (1 if pypdf_available() else 0) and r.chunks >= 2 and set(r.skipped) >= {str(tmp_path / "missing.md"), str(tmp_path / ".env")}
+    assert r.documents == 7 + (1 if pypdf_available() else 0) and r.chunks >= 2 and set(r.skipped) >= {str(tmp_path / "missing.md"), str(tmp_path / ".env")}
     resp = c.query("how often must secrets be rotated", top_k=2)
     assert resp.chunks[0].doc_id == "security-policy" and len(resp.chunks) == 2 and resp.retrieved_chunks is resp.chunks
     assert 0 <= resp.chunks[0].similarity <= 1 and resp.chunks[0].distance == pytest.approx(1 - resp.chunks[0].similarity, abs=1e-3)
@@ -87,7 +88,7 @@ def test_pdf_without_pypdf_is_skipped_with_fix(tmp_path, monkeypatch):
     monkeypatch.setattr(cl, "_has_pypdf", lambda: False)
     rag_cli.init(tmp_path)
     r = make(tmp_path).ingest(tmp_path / "data")
-    assert any("pip install pypdf" in v for v in r.skipped.values()) and r.documents == 2
+    assert any("pip install pypdf" in v for v in r.skipped.values()) and r.documents == 7
 
 
 def test_ide_command_binds_loopback_and_requires_password(tmp_path):
@@ -339,4 +340,4 @@ def test_sec_tutorial_notebook_is_valid_and_its_code_compiles():
     assert len(code) >= 8
     for src in code:
         ast.parse(src)
-    assert "notebooks/02_sec_filings_rag.ipynb" in samples.workspace()
+    assert "notebooks/09_sec_filings_rag.ipynb" in samples.workspace()
