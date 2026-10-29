@@ -243,3 +243,13 @@ def test_the_guide_names_real_commands_and_follows_the_writing_rules(home):
         assert needle in text
     assert "—" not in text and "–" not in text
     assert "rag-ide" not in text
+
+
+def test_open_client_builds_the_real_client_and_rebuilds_an_empty_index(home):
+    """Every other test injects a client. This one runs the helper's own import and rebuild path, which once failed on a bad relative import."""
+    launch(home)
+    from labagent.packs.aml.rag import tools
+    client = tools.open_client(home / "lab")
+    assert client.store.count() > 20
+    lab = Lab(home / "lab")
+    assert lab.ask("When must a suspicious transaction report be filed?", doc_type="policy").chunks
