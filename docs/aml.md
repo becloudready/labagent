@@ -10,8 +10,8 @@ Two audiences use the same data:
 | `mode=copilot` | Staff at financial firms learning Microsoft 365 Copilot | A folder of Excel, Word and text files, a plain-English exercise guide, and a separate instructor folder with the answers |
 
 ```bash
-pip install 'labagent[rag-local]'                     # rag mode: search and embeddings
-pip install 'labagent[aml]'                           # copilot mode: writes Excel and Word files
+pip install "labagent[rag-local] @ git+https://github.com/becloudready/labagent"   # rag mode: search and embeddings
+pip install "labagent[aml] @ git+https://github.com/becloudready/labagent"         # copilot mode: writes Excel and Word files
 labagent launch aml --name demo --param mode=rag --param jurisdiction=ca
 labagent launch aml --name spring --param mode=copilot --param jurisdiction=ca --param size=small
 labagent destroy aml --name demo

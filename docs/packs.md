@@ -45,7 +45,7 @@ Each notebook is short, safe to re-run, and ends with a check cell that stops wi
 | `99_cleanup` | Remove the app, the schema and the database project |
 
 ```bash
-pip install 'labagent[rag]'      # needs the Databricks CLI, then: databricks auth login
+pip install "labagent[rag] @ git+https://github.com/becloudready/labagent"   # needs the Databricks CLI, then: databricks auth login
 labagent launch rag-sec-tutorial --name demo
 ```
 

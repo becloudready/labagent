@@ -19,10 +19,22 @@ A lab is a **pack**: ordered steps that are safe to re-run. `launch` builds it a
 - **AWS sandboxes.** Cohort IAM with Terraform, plus plan-then-apply cleanup of shared accounts.
 - **Plain English.** `labagent "deploy rag-tutorial"` shows the command it understood and asks first (local Ollama, any OpenAI-compatible endpoint).
 
+## Install
+
+The packs and extras described here are on `main`. The release on PyPI (0.2.1) is older: it has no `aml`, `dbx-lakehouse`, `dbx-workspace`, `rag-ide` or `rag-sec-tutorial` pack and no `rag-local` or `aml` extra. Until the next release, install from GitHub. These lines work in bash, PowerShell and cmd:
+
+```
+python -m pip install --upgrade pip
+pip install "labagent[rag-local,aml] @ git+https://github.com/becloudready/labagent"
+labagent packs                         # you should see aml, dbx-lakehouse, rag-sec-tutorial ...
+```
+
+Use `labagent[rag]` for the Databricks RAG tutorial, or a clone with `pip install -e ".[rag-local,aml]"` if you want to edit the code.
+
 ## Quick start
 
 ```bash
-pip install 'labagent[rag]'            # Python 3.9+; sign in with: databricks auth login
+pip install "labagent[rag] @ git+https://github.com/becloudready/labagent"      # Python 3.9+; sign in with: databricks auth login
 labagent packs                         # list the labs
 labagent launch rag-sec-tutorial --name demo     # uploads the notebooks to your workspace; you run them
 labagent destroy rag-sec-tutorial --name demo    # removes the uploaded folder
@@ -44,7 +56,7 @@ Free Edition limits apply (one Lakebase project, three apps). Details: [docs/pac
 ## AML lab (synthetic data, RAG and Copilot)
 
 ```bash
-pip install 'labagent[rag-local,aml]'
+pip install "labagent[rag-local,aml] @ git+https://github.com/becloudready/labagent"
 labagent launch aml --name demo --param mode=rag --param jurisdiction=ca        # developers: indexed corpus, helper, quality checks
 labagent launch aml --name spring --param mode=copilot --param jurisdiction=ca   # staff: Excel and Word files, 13 exercises, instructor folder
 ```
