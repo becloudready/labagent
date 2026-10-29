@@ -16,9 +16,10 @@ CONTAINER_LAB = "/home/coder/lab"
 def add_parser(sub) -> None:
     rp = sub.add_parser("rag", help="Local, zero-cost RAG lab: init a workspace, open the web IDE (ide), or the visual playground")
     rs = rp.add_subparsers(dest="rag_cmd", required=True)
-    i = rs.add_parser("init", help="Create .env, data/sample_docs, notebooks/ and src/main.py")
+    i = rs.add_parser("init", help="Create the lab folder: README.md, .env, data/sample_docs, nine notebooks and src/main.py")
     i.add_argument("--dir", default=".", help="Target folder (default: current)")
     i.add_argument("--force", action="store_true", help="Overwrite files that already exist")
+    i.add_argument("--solutions", action="store_true", help="Instructors: also write the solved notebooks to solutions/")
     d = rs.add_parser("ide", help="Start a browser VS Code (code-server) on the workspace")
     d.add_argument("--dir", default=".", help="Workspace folder (initialised if it has no .env)")
     d.add_argument("--port", type=int, default=8080)
@@ -31,8 +32,8 @@ def add_parser(sub) -> None:
     s.add_argument("--port", type=int, default=8501)
 
 
-def init(target: Path, force: bool = False) -> int:
-    files = {target / rel: content for rel, content in samples.workspace().items()}
+def init(target: Path, force: bool = False, solutions: bool = False) -> int:
+    files = {target / rel: content for rel, content in samples.workspace(solutions).items()}
     clash = [str(p) for p in files if p.exists()]
     if clash and not force:
         print("error: would overwrite " + ", ".join(clash) + " (use --force)", file=sys.stderr)
@@ -42,7 +43,7 @@ def init(target: Path, force: bool = False) -> int:
         p.write_bytes(content if isinstance(content, bytes) else content.encode())
     (target / ".env").chmod(0o600)
     print(f"created {len(files)} files in {target.resolve()}")
-    print(f"next: labagent rag ide --dir {target}" if str(target) != "." else "next: labagent rag ide")
+    print(f"next: open {target / 'README.md'} and start with notebooks/01_chunking.ipynb")
     return 0
 
 
@@ -100,7 +101,7 @@ def ide(workspace: Path, port: int, mode: str, image: str, print_only: bool = Fa
         if err:
             print(f"error: {err}", file=sys.stderr)
             return 2
-    print(f"web IDE: http://127.0.0.1:{port}\npassword: {password}\nnotebook: notebooks/01_build_your_first_rag.ipynb  (Ctrl+C to stop)", flush=True)
+    print(f"web IDE: http://127.0.0.1:{port}\npassword: {password}\nnotebook: notebooks/01_chunking.ipynb  (Ctrl+C to stop)", flush=True)
     return subprocess.call(cmd, env={**os.environ, "PASSWORD": password})
 
 
@@ -118,7 +119,7 @@ def playground(target: Path, port: int) -> int:
 
 def run(args) -> int:
     if args.rag_cmd == "init":
-        return init(Path(args.dir), args.force)
+        return init(Path(args.dir), args.force, getattr(args, "solutions", False))
     if args.rag_cmd == "ide":
         return ide(Path(args.dir), args.port, args.mode, args.image, args.print_command)
     return playground(Path(args.dir), args.port)

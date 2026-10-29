@@ -1,36 +1,66 @@
-# Local RAG lab (zero cost)
+# Local RAG lab: build a RAG system, one part at a time (zero cost)
 
-A RAG lab that runs on your laptop. No cloud account, no database bill, no per-token embedding fees.
+A hands-on lab that runs on your laptop. No cloud account, no database bill, no per-token embedding fees. You build every part of
+a RAG system yourself (chunker, similarity search, vector store, prompt, hybrid search, evaluation, defences), then compare it
+with a real vector database and with the packaged library.
 
-Install from a checkout (the local lab is not in the PyPI release 0.2.1):
+**Audience:** engineers who can write Python functions and want to understand RAG by building it. No machine-learning background
+needed. **Instructor notes:** [rag-lab-instructor.md](rag-lab-instructor.md).
+
+## Set up
 
 ```bash
 git clone https://github.com/becloudready/labagent && cd labagent
-python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
-pip install -e '.[rag-local]'         # Chroma, sentence-transformers, Streamlit, Pydantic, pypdf
-labagent rag init --dir rag-lab       # creates the lab folder (see below)
-cd rag-lab && labagent rag serve      # playground on http://localhost:8501
+python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
+python -m pip install --upgrade pip                    # the pip that ships with macOS Python 3.9 cannot install this package in editable mode
+pip install -e '.[rag-local]'                          # Chroma, sentence-transformers (PyTorch), Streamlit, Pydantic, pypdf
+pip install jupyterlab                                 # or open the notebooks in VS Code and choose the .venv kernel
+labagent rag init --dir rag-lab                        # creates the lab folder
+cd rag-lab && jupyter lab
 ```
+
+Needs Python 3.9 or newer (3.11 or 3.12 recommended), `git`, about 3 GB of disk, and internet on the first run (the install, and
+a 90 MB embedding model from Hugging Face). The local lab is not in the PyPI release 0.2.1, so install from a checkout.
+
+Optional: a free key from console.groq.com in `rag-lab/.env` as `GROQ_API_KEY=...` for real answers from notebook 4 onward. With no
+key every notebook still runs and shows a clearly marked mock answer.
+
+## The notebooks
+
+| # | Notebook | The learner writes | Concept |
+|---|---|---|---|
+| 1 | `01_chunking` | `chunk_fixed`, `chunk_paragraphs` | size, overlap and structure trade precision for context |
+| 2 | `02_embeddings` | `cosine`, `rank` | meaning as vectors; where embeddings are blind |
+| 3 | `03_vector_store` | `TinyStore.add`, `TinyStore.search` | what a vector database does; brute force and its limit |
+| 4 | `04_generation` | `build_prompt`, `answer` | grounding, "I don't know", citations, prompt cost |
+| 5 | `05_chroma_and_filters` | `ChromaStore` | what a real database adds; metadata filters |
+| 6 | `06_hybrid_search` | `keyword_score`, `hybrid_search` | exact words versus meaning; the weight; the pool limit |
+| 7 | `07_evaluation` | `evaluate`, own test cases | hit rate and MRR; comparing settings honestly |
+| 8 | `08_break_it` | `latest_only`, `should_answer`, `looks_like_injection`, `build_safe_prompt` | stale, missing and hostile documents |
+| 9 | `09_sec_filings_rag` | nothing (optional) | the packaged library on real SEC filings |
+
+Each exercise is a function with a `TODO`, followed by a **check** cell that prints `ok` for each thing it verifies or stops with a
+hint. Each notebook starts from a working copy of the earlier exercises, so a stuck exercise never blocks the next notebook.
 
 `init` creates:
 
 | Path | What it is |
 |---|---|
-| `.env` | Settings and API keys (mode 600). Leave every key empty to get a marked mock answer |
-| `data/sample_docs/` | Three sample documents: `data_handling.md`, `security_policy.md`, `incident_response.pdf` |
-| `notebooks/01_build_your_first_rag.ipynb` | Build a RAG step by step |
-| `notebooks/02_sec_filings_rag.ipynb` | A larger exercise on SEC filings |
-| `src/main.py` | A command-line RAG with three TODOs: `python src/main.py "What is our enterprise security policy?"` |
+| `README.md` | The learner's guide: setup, the notebook map, how the checks work |
+| `.env` | Settings and API keys (mode 600) |
+| `data/sample_docs/` | Eight documents from an invented company: seven Markdown files and one PDF |
+| `notebooks/01_*.ipynb` to `09_*.ipynb` | The lab |
+| `src/main.py` | A command-line RAG on the labagent library, with three TODOs |
 
-It refuses to overwrite existing files unless you pass `--force`.
+It refuses to overwrite existing files without `--force`. Instructors add `--solutions` to also write the solved notebooks to
+`solutions/`. Notebook 8 writes two deliberately bad documents to `data/untrusted/`.
 
-The first run downloads the embedding model (`all-MiniLM-L6-v2`) from Hugging Face, so the first ingest is slow.
+Other commands: `labagent rag playground` (alias `serve`) opens a visual page on http://localhost:8501 with chunks, scores and
+answers side by side. `labagent rag ide --dir rag-lab` opens a browser VS Code on the lab (Docker, or `code-server` on your PATH).
 
-Other ways in: `labagent rag ide --dir rag-lab` opens a browser VS Code on the lab (Docker, or `code-server` on your PATH). `labagent rag playground` is the same as `serve`; `--port` changes 8501.
+## The packaged library
 
-For the Databricks version (Lakebase, pgvector, a deployed app) use `labagent launch rag-sec-filings`. See [packs.md](packs.md).
-
-## Python API
+The notebooks build this by hand. For real work the same pipeline is in the library:
 
 ```python
 from labagent.ai.rag import RAGLabClient
@@ -39,7 +69,7 @@ client = RAGLabClient()                       # settings come from the environme
 client.ingest("data/sample_docs")            # .md, .txt, .rst and .pdf files or folders. ingest_documents([...]) takes a list; aingest_documents() is the async form
 resp = client.query("What is hybrid search?", top_k=3)
 resp.answer, resp.chunks, resp.metrics        # chunks carry similarity, distance, keyword_score
-client.inspect_vectors("hybrid-search")       # chunk ids, text, first 8 embedding values
+client.inspect_vectors("security-policy")     # chunk ids, text, first 8 embedding values
 client.reset()
 ```
 

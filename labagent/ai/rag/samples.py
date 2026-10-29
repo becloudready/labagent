@@ -157,41 +157,6 @@ if __name__ == "__main__":
 '''
 
 
-def notebook() -> str:
-    def md(src): return {"cell_type": "markdown", "metadata": {}, "source": src.splitlines(True)}
-    def code(src): return {"cell_type": "code", "metadata": {}, "execution_count": None, "outputs": [], "source": src.splitlines(True)}
-    cells = [
-        md("# Build your first RAG\n\nYou will chunk documents, turn the chunks into vectors, search them, and let a language model answer from what you found.\n\n"
-           "Time: about 30 minutes. Cost: zero. Embeddings run on this machine. Answers come from Groq (free key in `.env`), local Ollama, or a mock answer if neither is set.\n"),
-        md("## 1. Read the documents\n\nThe `data/sample_docs` folder holds three company documents: two Markdown files and one PDF.\n"),
-        code("from pathlib import Path\n\nfor f in sorted(Path('../data/sample_docs').iterdir()):\n    print(f.name, f.stat().st_size, 'bytes')\n"),
-        md("## 2. Chunk\n\nModels read short passages, so long documents are split. Try different sizes and watch the chunk count.\n"),
-        code("from labagent.ai.rag import chunk_text\n\ntext = Path('../data/sample_docs/security_policy.md').read_text()\nfor size in (200, 400, 800):\n    chunks = chunk_text(text, size=size, overlap=50)\n    print(size, '->', len(chunks), 'chunks')\nprint('\\n--- first chunk at 400 ---\\n', chunk_text(text, size=400, overlap=50)[0])\n"),
-        md("**Your turn:** which size would you choose for policy documents, and why? Write one sentence here before moving on.\n"),
-        md("## 3. Embed\n\nAn embedding is a list of numbers that captures meaning. Similar texts get similar vectors.\n"),
-        code("from labagent.ai.rag import RAGLabClient\nfrom labagent.ai.rag.config import load_dotenv\n\nload_dotenv(Path('../.env'))\nrag = RAGLabClient()                      # Chroma + MiniLM on CPU, no cost\nvecs = rag.embedder.embed(['Passwords need 14 characters', 'Use a long password', 'The cafeteria opens at noon'])\nprint(len(vecs[0]), 'numbers per vector')\n\ndef cos(a, b): return sum(x * y for x, y in zip(a, b))\nprint('password vs long password :', round(cos(vecs[0], vecs[1]), 3))\nprint('password vs cafeteria     :', round(cos(vecs[0], vecs[2]), 3))\n"),
-        md("The first pair should score much higher. If both are near equal, check the warnings above: without `sentence-transformers` the client falls back to a word-matching embedder.\n"),
-        md("## 4. Index\n"),
-        code("result = rag.ingest('../data/sample_docs')\nprint(result.documents, 'documents,', result.chunks, 'chunks,', result.embedding_model, 'in', result.vector_store)\nprint('skipped:', result.skipped)\nrag.inspect_vectors(result.doc_ids[0])['items'][0]\n"),
-        md("## 5. Retrieve\n\nEach result has a similarity score and a keyword score. Retrieval reranks by `0.7 * similarity + 0.3 * keyword overlap`.\n"),
-        code("for c in rag.retrieve('How often must secrets be rotated?', top_k=3):\n    print(c.rank, c.doc_id, 'similarity', c.similarity, 'keywords', c.keyword_score)\n    print('   ', c.text[:120].replace('\\n', ' '))\n"),
-        md("**Your turn:** ask a question that only the PDF can answer (look at its text first). Does the PDF show up at rank 1?\n"),
-        code("# YOUR QUESTION HERE\nquestion = 'What is our enterprise security policy?'\nfor c in rag.retrieve(question, top_k=3):\n    print(c.rank, c.doc_id, c.similarity)\n"),
-        md("## 6. Generate\n\nThe retrieved chunks go into the prompt. The model is told to answer only from them and to say when it does not know.\n"),
-        code("resp = rag.query(question, top_k=3)\nprint(resp.answer)\nprint()\nprint(resp.metrics)\nfor w in resp.warnings:\n    print('warning:', w)\n"),
-        md("## 7. Break it on purpose\n\n1. Ask something the documents do not cover, such as `What is the lunch menu?`. A good system says it does not know.\n"
-           "2. Set `top_k=1` and ask a question that needs two documents.\n3. Call `rag.reset()`, re-ingest with `chunk_chars=100` in `RAGSettings`, and compare answers.\n"),
-        code("print(rag.query('What is the lunch menu?').answer)\n"),
-        md("## Next\n\nOpen the visual playground in a terminal with `labagent rag playground` and compare scores side by side. "
-           "For a managed version on Databricks Lakebase, see `labagent launch rag-sec-tutorial`.\n"),
-    ]
-    for i, c in enumerate(cells):
-        c["id"] = f"cell{i:02d}"          # nbformat 4.5 requires cell ids
-    nb = {"cells": cells, "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}, "language_info": {"name": "python"}},
-          "nbformat": 4, "nbformat_minor": 5}
-    return json.dumps(nb, indent=1) + "\n"
-
-
 def sec_notebook() -> str:
     """Tutorial notebook: RAG over SEC 10-K filings (segments match the video outline)."""
     def md(src): return {"cell_type": "markdown", "metadata": {}, "source": src.splitlines(True)}
@@ -267,14 +232,66 @@ def sec_notebook() -> str:
     return json.dumps(nb, indent=1) + "\n"
 
 
-def workspace() -> Dict[str, Union[str, bytes]]:
-    """Relative path -> content for a fresh lab workspace."""
-    return {
+LAB_README = """# RAG lab: build a retrieval-augmented generation system, one part at a time
+
+You will build every part of a RAG system yourself, with numpy and a small embedding model, then compare it with a real vector
+database. Nothing is hidden behind a library until you have written the same thing.
+
+## Setup (once)
+
+```bash
+python -m venv .venv && source .venv/bin/activate      # Windows: .venv\\Scripts\\activate
+python -m pip install --upgrade pip
+pip install -e '.[rag-local]'                          # run from the labagent checkout
+jupyter lab                                            # or open the notebooks in VS Code (choose the .venv kernel)
+```
+
+Optional, for real answers in notebook 4 onward: a free key from console.groq.com, pasted into `.env` as `GROQ_API_KEY=...`.
+Without a key the lab still runs and shows a marked mock answer.
+
+## The notebooks (do them in order, about 3 hours in all)
+
+| # | Notebook | You build | Time |
+|---|---|---|---|
+| 1 | `01_chunking` | a chunker | 20 min |
+| 2 | `02_embeddings` | cosine similarity and ranking | 20 min |
+| 3 | `03_vector_store` | a vector store with numpy | 25 min |
+| 4 | `04_generation` | the prompt and the full pipeline | 25 min |
+| 5 | `05_chroma_and_filters` | a Chroma store and metadata filters | 20 min |
+| 6 | `06_hybrid_search` | a keyword score and hybrid ranking | 25 min |
+| 7 | `07_evaluation` | an evaluation and a settings comparison | 30 min |
+| 8 | `08_break_it` | defences against old, missing and hostile documents | 30 min |
+| 9 | `09_sec_filings_rag` | the packaged library on real SEC filings (optional) | 25 min |
+
+## How the exercises work
+
+Cells marked with a `TODO` are yours to write. Run the **check** cell under each one: it prints `ok` for each thing it verifies,
+or stops with a hint. Each notebook starts from a working copy of the earlier exercises, so a stuck exercise never blocks
+the next notebook. Write your reflections in the cells marked *Your answer*.
+
+## Other things in this folder
+
+- `data/sample_docs/`: the eight sample documents (the policies of an invented company). Put your own `.md`, `.txt` or `.pdf` files in `data/` to try them.
+- `src/main.py`: a command-line RAG built on the labagent library, with three small TODOs.
+- `labagent rag playground`: a visual page showing chunks, scores and answers side by side.
+- `.env`: settings and keys. Never commit real keys.
+"""
+
+
+def workspace(solutions: bool = False) -> Dict[str, Union[str, bytes]]:
+    """Relative path -> content for a fresh lab workspace. With solutions=True the instructor notebooks are added in solutions/."""
+    from . import lab
+    files: Dict[str, Union[str, bytes]] = {
         ".env": ENV_TEMPLATE,
+        "README.md": LAB_README,
         "data/sample_docs/security_policy.md": SECURITY_POLICY,
         "data/sample_docs/data_handling.md": DATA_HANDLING,
         "data/sample_docs/incident_response.pdf": make_pdf(INCIDENT_LINES),
-        "notebooks/01_build_your_first_rag.ipynb": notebook(),
-        "notebooks/02_sec_filings_rag.ipynb": sec_notebook(),
+        **lab.sample_docs(),
+        **lab.student(),
+        "notebooks/09_sec_filings_rag.ipynb": sec_notebook(),
         "src/main.py": MAIN_PY,
     }
+    if solutions:
+        files.update(lab.solution())
+    return files
