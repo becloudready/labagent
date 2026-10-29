@@ -24,8 +24,8 @@ CHUNKS = "corpus/chunks.jsonl"
 
 def open_client(out_dir: Path, settings_update: Optional[Dict[str, Any]] = None):
     """Open the lab's index. If the index is empty (a fresh checkout, or a memory store), rebuild it from corpus/chunks.jsonl."""
-    from ...ai.rag import RAGLabClient
-    from ...ai.rag.config import RAGSettings
+    from ....ai.rag import RAGLabClient
+    from ....ai.rag.config import RAGSettings
     cfg = json.loads((out_dir / CONFIG).read_text())
     s = RAGSettings.from_env().model_copy(update={"chroma_path": str(out_dir / "index"), "collection": "aml_lab",
                                                   **({"embedding_model_name": "hashing"} if cfg.get("embedder") == "hashing" else {}),

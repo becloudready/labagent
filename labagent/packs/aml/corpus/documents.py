@@ -48,7 +48,7 @@ FACTS = {
         suspicious_time="as soon as practicable after the credit union has taken the measures that let it establish reasonable grounds to suspect",
         suspicious_time_cite="PCMLTF STR Regulations s. 9", records_cite="PCMLTF Regulations s. 148", records_time="at least five years",
         records_cite2="PCMLTFA s. 6", confidentiality_cite="PCMLTFA s. 8", officer="Chief Anti-Money Laundering Officer",
-        suspicion="reasonable grounds to suspect", structuring=("FINTRAC lists deposits structured to stay under a reporting threshold as a money laundering indicator.", None),
+        suspicion="have reasonable grounds to suspect", structuring=("FINTRAC lists deposits structured to stay under a reporting threshold as a money laundering indicator.", None),
         report_short="STR", currency="CAD"),
     "us": dict(
         regulator="FinCEN", law="the Bank Secrecy Act", suspicious="Suspicious Activity Report (SAR)",

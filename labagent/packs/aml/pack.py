@@ -28,7 +28,7 @@ from .rag import tools
 MARKER = ".labagent-aml"
 GUIDE = "LAB_GUIDE.md"
 SHIM = "aml_tools.py"
-OWN_PATHS = ("tables", "answer_key", "data", "corpus", "index", tools.CONFIG, GUIDE, SHIM, MARKER)
+OWN_PATHS = ("tables", "answer_key", "data", "corpus", "index", "solutions", tools.CONFIG, GUIDE, SHIM, MARKER)
 
 SHIM_TEXT = '"""Lab helper. Run Python in this folder:  from aml_tools import AmlLab; lab = AmlLab()"""\nfrom labagent.packs.aml.rag.tools import AmlLab  # noqa: F401\n'
 
@@ -38,6 +38,7 @@ def guide_text(cfg: Dict[str, Any], quality: Dict[str, Any]) -> str:
     q = quality
     note = ("\n**Your embedding model is the keyword-only fallback.** Search matches shared words, not meaning, so some answers will miss. "
             "Install the full lab with `pip install 'labagent[rag-local]'` and launch again.\n") if q["keyword_only_embedder"] else ""
+    solutions_line = "\n   The instructor copies with the answers are in `solutions/`." if cfg.get("solutions") else ""
     return f"""# AML RAG lab: {cfg['institution']} ({j})
 
 You build a research assistant for an anti-money laundering team. It answers policy questions with citations, pulls the evidence for an
@@ -50,13 +51,21 @@ alert, and helps draft a report narrative. All names and transactions are invent
 | `data/` | Policy manual, alert procedure, report guide and one case file per alert (Markdown). Start `labagent rag serve --dir .` to search them. |
 | `tables/` | `customers`, `accounts`, `transactions`, `alerts`, `kyc_profiles`, `sanctions_hits` as CSV |
 | `answer_key/` | The decisions and reasons for each alert. Open it after you decide. |
-| `aml_tools.py` | Helpers for the tasks below |
+| `aml_tools.py` | The finished assistant (the demo) |
+| `notebooks/` | Four build-it-yourself notebooks (the lab) |
 
 ## Starting numbers
 
 - Retrieval hit rate on {q['retrieval']['questions']} questions with known answers: **{q['retrieval']['hit_rate']:.2f}**
 - Citation validity of the reference narratives: **{q['citations']['rate']:.2f}**
 - A fixed reference rule agrees with the answer key on **{q['triage']['reference_rule']['agreement']:.2f}** of {q['triage']['alerts']} sample alerts. This shows the evidence is enough to decide. It is not a measure of a model.
+
+## Two ways to use this folder
+
+1. **The demo.** `aml_tools.py` is a finished assistant. The tasks below use it, so you can see what a good result looks like.
+2. **The lab.** `notebooks/` holds four notebooks where you build the same parts yourself and test each against the data and the answer key:
+   `01_policy_search`, `02_evidence_bundle`, `03_citations_and_narrative`, `04_triage_and_evaluation`. Open them with `jupyter lab`
+   (`pip install jupyterlab`). Do the demo tasks first, then the notebooks.{solutions_line}
 
 ## Task 1: ask policy questions with citations
 
@@ -108,7 +117,7 @@ class AmlLab(Pack):
     cost_tier = "free"
     default_name = "demo"
     output_keys = ("out_dir", "mode", "platform", "jurisdiction", "counts", "quality", "guide", "embedding_model", "learner_dir", "instructor_dir",
-                   "learner_zip", "instructor_zip", "package")
+                   "learner_zip", "instructor_zip", "package", "notebooks")
     params = [
         Param("mode", "rag", "rag (developers: indexed corpus and Python helpers) | copilot (staff: Excel, Word and PDF files)"),
         Param("jurisdiction", "ca", "ca | us | both"),
@@ -119,6 +128,7 @@ class AmlLab(Pack):
         Param("out", None, "Folder for the lab files (default ./aml-<name>)"),
         Param("regulations", "auto", "auto | fetch (download the regulation text now) | skip (policies and cases only)"),
         Param("embedder", "auto", "auto (full model if installed, else keyword-only fallback) | hashing (force the fast keyword-only embedder)"),
+        Param("solutions", "no", "rag: yes also writes the solved notebooks to solutions/ (for instructors)"),
         Param("llm", "none", "none (mock answers) | env (use the chat model configured in the environment, and score it on triage)"),
         Param("dataset", "aml-synthetic", "generator=snapshot: the pinned dataset name"),
         Param("cases", 20, "copilot: how many case workbooks to include, 12 to 60"),
@@ -175,6 +185,8 @@ class AmlLab(Pack):
             raise PackError("platform must be local")
         if p["regulations"] not in ("auto", "fetch", "skip"):
             raise PackError("regulations must be auto, fetch or skip")
+        if p["solutions"] not in ("no", "yes"):
+            raise PackError("solutions must be no or yes")
         if p["embedder"] not in ("auto", "hashing") or p["llm"] not in ("none", "env"):
             raise PackError("embedder must be auto or hashing, and llm must be none or env")
         try:
@@ -192,7 +204,7 @@ class AmlLab(Pack):
         p = ctx.params
         cfg = {"institution": "Maple Ridge Credit Union", "name": ctx.name, "jurisdiction": p["jurisdiction"], "mode": p["mode"],
                "regulations": p["regulations"] != "skip", "embedder": p["embedder"], "seed": int(p["seed"]), "size": p["size"],
-               "sample_alert": ctx.state.get("sample_alert", "AL00001")}
+               "sample_alert": ctx.state.get("sample_alert", "AL00001"), "solutions": p["solutions"] == "yes"}
         (out / tools.CONFIG).write_text(json.dumps(cfg, indent=2, sort_keys=True) + "\n")
         return cfg
 
@@ -340,6 +352,19 @@ class AmlLab(Pack):
             (out / SHIM).write_text(SHIM_TEXT)
             return {"guide": str(out / GUIDE)}
 
+        def notebooks(c: PackContext):
+            from . import lab
+            written = []
+            files = dict(lab.student())
+            if c.params["solutions"] == "yes":
+                files.update(lab.solution())
+            for rel, content in files.items():
+                path = out / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content)
+                written.append(rel)
+            return {"notebooks": sorted(written)}
+
         return [
             Step("preflight", "Check the options and the output folder", preflight, check=lambda c: (out / MARKER).exists() and "out_dir" in c.state),
             Step("data", "Generate the synthetic transactions, customers, alerts and answer key", data,
@@ -349,6 +374,8 @@ class AmlLab(Pack):
             Step("index", "Index the corpus for search", index, check=lambda c: "indexed_chunks" in c.state),
             Step("quality", "Run the quality checks", quality, check=lambda c: bool(c.state.get("quality", {}).get("passed"))),
             Step("guide", "Write the lab guide", guide, check=lambda c: (out / GUIDE).exists() and "guide" in c.state),
+            Step("notebooks", "Write the build-it-yourself notebooks", notebooks,
+                 check=lambda c: bool(c.state.get("notebooks")) and all((out / rel).exists() for rel in c.state["notebooks"])),
         ]
 
     def destroy_steps(self, ctx: PackContext) -> List[Step]:
@@ -364,6 +391,11 @@ class AmlLab(Pack):
                 if path.is_dir():
                     shutil.rmtree(path)
                 elif path.exists():
+                    path.unlink()
+            from . import lab
+            for rel, content in lab.student().items():     # a notebook the learner has edited is their work: keep it
+                path = out / rel
+                if path.is_file() and path.read_text() == content:
                     path.unlink()
             for rel in c.state.get("created", []):        # copilot mode lists every file it wrote: delete those, keep anything else
                 path = out / rel

@@ -18,7 +18,7 @@ labagent destroy aml --name demo
 labagent "set up the AML copilot lab for Canada"      # plain English; it shows the command and asks first
 ```
 
-Options: `jurisdiction=ca|us|both`, `size=small|medium`, `seed=42`, `generator=builtin|snapshot`, `regulations=auto|fetch|skip`. Same seed, same data.
+Options: `jurisdiction=ca|us|both`, `size=small|medium`, `seed=42`, `generator=builtin|snapshot`, `regulations=auto|fetch|skip`, `solutions=no|yes` (rag mode: also write the solved notebooks). Same seed, same data.
 
 ## Synthetic AML dataset for RAG
 
@@ -29,11 +29,29 @@ In `mode=rag` the pack writes a lab folder:
 | `data/` | Policy manual, alert procedure, report guide, regulation text and one case file per alert, as Markdown |
 | `tables/` | `customers`, `accounts`, `transactions`, `alerts`, `kyc_profiles`, `sanctions_hits` as CSV |
 | `answer_key/` | `ground_truth.csv`: the decision and the reason for every alert, kept apart |
-| `aml_tools.py` | `AmlLab`: `ask`, `show`, `check`, `triage`, `score` |
+| `aml_tools.py` | `AmlLab`: `ask`, `show`, `check`, `triage`, `score`. The finished assistant: the demo |
+| `notebooks/` | Four build-it-yourself notebooks: the lab |
+| `solutions/` | The solved notebooks, only with `--param solutions=yes` (for instructors) |
 
 The corpus is indexed with the same client as the local RAG lab (`labagent.ai.rag`). Policies and regulations are chunked by section. Case files keep only the summary and the customer profile as text. Transactions stay in tables, because a table is the right shape for them.
 
 Learners do three tasks: ask policy questions and read the citations, pull the **evidence bundle** for an alert, and draft a report narrative that cites real transaction IDs and sections. The bundle holds the customer profile, the alert trigger, the transactions around it, the matching policy and rule text, and similar earlier cases. The design follows the explainable triage paper (arXiv 2604.19755).
+
+### Two ways to use the folder: the demo and the lab
+
+- **The demo is `aml_tools.AmlLab`.** It is a finished assistant, so learners see what a good result looks like before they build one. The tasks in `LAB_GUIDE.md` use it.
+- **The lab is `notebooks/`.** Learners write the same parts themselves, and each part is tested against the data and the answer key:
+
+| # | Notebook | The learner writes | Tested against |
+|---|---|---|---|
+| 1 | `01_policy_search` | a search with metadata filters (country, document type), and a hit-rate measure | the launch's own 14-question set |
+| 2 | `02_evidence_bundle` | the transactions around an alert (own account, then following the money), similar earlier cases, the whole bundle | recall of the answer key's key transactions (0.72 own-account only, 1.00 with hops), and a canary test for answer leakage |
+| 3 | `03_citations_and_narrative` | a citation checker, a gate that cannot be passed by saying nothing, the narrative prompt | invented IDs and sections, and a real ID from the wrong alert |
+| 4 | `04_triage_and_evaluation` | a scorer, a rule that decides, a strict parser for a model's decision, an error analysis by pattern | the answer key and a majority-label baseline |
+
+They use the same stub, check and solution format as the [RAG lab](rag-local.md), and start from working copies of the earlier exercises. Learners
+need the RAG lab's `pip install -e '.[rag-local]'` and `jupyterlab`. Instructor notes: [aml-lab-instructor.md](aml-lab-instructor.md).
+`destroy` removes the notebooks unless the learner has edited them: an edited notebook is their work and stays.
 
 ### Quality checks
 
