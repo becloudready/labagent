@@ -180,7 +180,7 @@ def build_index(chunks: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def load_index() -> Dict[str, Any]:
-    return json.loads(INDEX_PATH.read_text())
+    return json.loads(INDEX_PATH.read_text(encoding="utf-8"))
 
 
 def cited_sections(text: str) -> Dict[str, List[str]]:
@@ -203,13 +203,13 @@ if __name__ == "__main__":      # maintainers only: refresh the index, or write 
     args = sys.argv[1:]
     if "--write-index" in args:
         index = build_index(regulation_chunks("both"))
-        INDEX_PATH.write_text(json.dumps(index, indent=1, sort_keys=True) + "\n")
+        INDEX_PATH.write_text(json.dumps(index, indent=1, sort_keys=True) + "\n", encoding="utf-8")
         print({k: len(v) for k, v in index["sections"].items()}, index["as_of"])
     elif "--write-chunks" in args:
         path = Path(args[args.index("--write-chunks") + 1])
         jur = args[args.index("--jurisdiction") + 1] if "--jurisdiction" in args else "both"
         rows = regulation_chunks(jur)
-        path.write_text("\n".join(json.dumps(r, ensure_ascii=False, sort_keys=True) for r in rows) + "\n")
+        path.write_text("\n".join(json.dumps(r, ensure_ascii=False, sort_keys=True) for r in rows) + "\n", encoding="utf-8")
         print(f"{len(rows)} chunks -> {path}")
     else:
         raise SystemExit("usage: python -m labagent.packs.aml.corpus.regs (--write-index | --write-chunks FILE [--jurisdiction ca|us|both])")

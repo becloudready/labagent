@@ -26,7 +26,7 @@ def clone_pinned(url: str, sha: str, dest: Path, run: Callable = subprocess.run)
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_GLOBAL": os.devnull}
 
     def g(*args: str, cwd: Path) -> str:
-        p = run([git, *args], cwd=str(cwd), capture_output=True, text=True, env=env)
+        p = run([git, *args], cwd=str(cwd), capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
         if p.returncode != 0:
             raise PackError(f"git {args[0]} failed: {(p.stderr or p.stdout).strip().splitlines()[-1:][0] if (p.stderr or p.stdout).strip() else ''}")
         return p.stdout.strip()

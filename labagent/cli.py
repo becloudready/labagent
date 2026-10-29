@@ -20,7 +20,7 @@ def _emit(env: Envelope, output: str) -> None:
     if output == "-":
         print(text)
     else:
-        Path(output).write_text(text)
+        Path(output).write_text(text, encoding="utf-8")
         Path(output).chmod(0o600)
 
 
@@ -151,7 +151,7 @@ def main(argv=None) -> int:
         print("\n".join(sorted(COMMANDS)))
         return 0
     try:
-        job = json.loads(Path(args.job).read_text())
+        job = json.loads(Path(args.job).read_text(encoding="utf-8"))
         if job.get("command") in PACK_COMMANDS:       # lab packs bring their own credentials: no AWS account guard here
             env = run_pack_job(job)
             _emit(env, args.output)
@@ -159,7 +159,7 @@ def main(argv=None) -> int:
         cfg = load_config(args.config)
         session = boto3.Session(profile_name=args.profile, region_name=cfg.region)
         if getattr(args, "ruleset", None) and "ruleset" not in job:
-            job["ruleset"] = json.loads(Path(args.ruleset).read_text())
+            job["ruleset"] = json.loads(Path(args.ruleset).read_text(encoding="utf-8"))
         env = run_job(Ctx(cfg, session), job)
     except GuardError as e:
         env = Envelope(command="guard").fail(str(e))

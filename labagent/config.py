@@ -63,7 +63,7 @@ def load_config(path: Optional[str] = None) -> Config:
     path = path or getenv("CONFIG")
     raw = {}
     if path:
-        raw = json.loads(Path(path).read_text())
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
     known = {f.name for f in fields(Config)}
     unknown = set(raw) - known
     if unknown:

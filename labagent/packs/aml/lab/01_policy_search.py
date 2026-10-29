@@ -57,10 +57,10 @@ from labagent.ai.rag.labkit import check, lab_root, load_env
 load_env()
 root = lab_root()
 sys.path.insert(0, str(root))
-cfg = json.loads((root / "config.json").read_text())
+cfg = json.loads((root / "config.json").read_text(encoding="utf-8"))
 print("jurisdiction:", cfg["jurisdiction"], "| regulations included:", cfg["regulations"])
 
-rows = [json.loads(line) for line in (root / "corpus" / "chunks.jsonl").read_text().splitlines() if line.strip()]
+rows = [json.loads(line) for line in (root / "corpus" / "chunks.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
 print(len(rows), "chunks")
 print(Counter((r["meta"]["doc_type"], r["meta"]["jurisdiction"]) for r in rows))
 print(json.dumps({k: rows[0][k] for k in ("id", "title")} | {"meta": rows[0]["meta"]}, indent=1)[:600])

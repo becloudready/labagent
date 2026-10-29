@@ -53,7 +53,7 @@ class LocalDockerGateway:
 
     def _run(self, args: List[str], env: Optional[Dict[str, str]] = None, check: bool = True) -> subprocess.CompletedProcess:
         import os
-        r = subprocess.run(args, capture_output=True, text=True, env={**os.environ, **(env or {})})
+        r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", env={**os.environ, **(env or {})})
         if check and r.returncode != 0:
             raise PackError(f"docker failed: {(r.stderr or r.stdout).strip().splitlines()[-1][:200] if (r.stderr or r.stdout).strip() else 'unknown error'}")
         return r

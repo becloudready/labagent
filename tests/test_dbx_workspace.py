@@ -32,7 +32,7 @@ class FakeTerraform:
                                                           "pricing_tier": {"value": "PREMIUM"}}
         self.fail_on, self.stderr, self.calls, self.envs = fail_on, stderr, [], []
 
-    def __call__(self, cmd, capture_output=True, text=True, env=None, cwd=None):
+    def __call__(self, cmd, capture_output=True, text=True, env=None, cwd=None, **kw):
         args = cmd[1:]
         self.calls.append((args, cwd))
         self.envs.append(env)

@@ -35,7 +35,7 @@ def sha256_file(path: Path) -> str:
 def build_snapshot(chunks_path: Path, name: str, version: str, out_dir: Path, source: str = "SEC EDGAR",
                    built: Optional[str] = None) -> Dict[str, Any]:
     """Write <name>-<version>.chunks.jsonl.gz (byte-for-byte reproducible), a manifest and SHA256SUMS."""
-    rows = [json.loads(l) for l in Path(chunks_path).read_text().splitlines() if l.strip()]
+    rows = [json.loads(l) for l in Path(chunks_path).read_text(encoding="utf-8").splitlines() if l.strip()]
     if not rows:
         raise DatasetError("no chunks to package")
     ids = [r["id"] for r in rows]
@@ -69,13 +69,13 @@ def build_snapshot(chunks_path: Path, name: str, version: str, out_dir: Path, so
     }
     if sources:
         manifest["sources"] = sources
-    (out_dir / f"{stem}.manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-    (out_dir / "SHA256SUMS").write_text(f"{manifest['sha256']}  {data.name}\n")
+    (out_dir / f"{stem}.manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (out_dir / "SHA256SUMS").write_text(f"{manifest['sha256']}  {data.name}\n", encoding="utf-8")
     return manifest
 
 
 def registry() -> Dict[str, Dict[str, Any]]:
-    return json.loads((Path(__file__).parent / "packs" / "rag" / "sources" / "datasets.json").read_text())
+    return json.loads((Path(__file__).parent / "packs" / "rag" / "sources" / "datasets.json").read_text(encoding="utf-8"))
 
 
 def default_http(url: str, dest: Path) -> None:
@@ -129,7 +129,7 @@ def build_table_snapshot(src_dir: Path, name: str, version: str, out_dir: Path, 
     prov_path = src_dir / "provenance.json"
     if not prov_path.exists():
         raise DatasetError("provenance.json is missing: a snapshot must say where its data came from")
-    prov = json.loads(prov_path.read_text())
+    prov = json.loads(prov_path.read_text(encoding="utf-8"))
     try:
         assert_redistributable([s["id"] for s in prov.get("sources", [])])
     except Exception as e:
@@ -153,8 +153,8 @@ def build_table_snapshot(src_dir: Path, name: str, version: str, out_dir: Path, 
         "file": data.name, "sha256": sha256_file(data), "bytes": data.stat().st_size,
         "files": {p.name: sha256_file(p) for p in files}, "sources": prov["sources"], "info": prov.get("info", {}),
     }
-    (out_dir / f"{stem}.manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-    (out_dir / "SHA256SUMS").write_text(f"{manifest['sha256']}  {data.name}\n")
+    (out_dir / f"{stem}.manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (out_dir / "SHA256SUMS").write_text(f"{manifest['sha256']}  {data.name}\n", encoding="utf-8")
     return manifest
 
 

@@ -119,10 +119,10 @@ shutil.copytree(source, target)
 settings = {"PGHOST": lakebase_host(), "LAKEBASE_ENDPOINT": LAKEBASE_ENDPOINT, "EMBED_ENDPOINT": EMBED_ENDPOINT,
             "CHAT_ENDPOINT": CHAT_ENDPOINT, "RAG_SCHEMA": SCHEMA, "TOP_K": str(TOP_K)}
 yaml_path = f"{target}/app.yaml"
-text = open(yaml_path).read()
+text = open(yaml_path, encoding="utf-8").read()
 for key, value in settings.items():
     text = text.replace(f"__{key}__", value)
-open(yaml_path, "w").write(text)
+open(yaml_path, "w", encoding="utf-8").write(text)
 
 print(text)
 check("__" not in text, "every placeholder in app.yaml was replaced")

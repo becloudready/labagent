@@ -29,7 +29,7 @@ def load_docs(folder: Optional[str] = None) -> Dict[str, str]:
     docs: Dict[str, str] = {}
     for f in sorted(base.iterdir()):
         if f.suffix in (".md", ".txt"):
-            docs[f.stem] = f.read_text()
+            docs[f.stem] = f.read_text(encoding="utf-8")
         elif f.suffix == ".pdf":
             try:
                 from pypdf import PdfReader

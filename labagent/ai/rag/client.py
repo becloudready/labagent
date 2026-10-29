@@ -112,7 +112,7 @@ class RAGLabClient:
 
     # ---- ingestion -------------------------------------------------------------------------------------------------
     def _read_chunks(self, path: Path) -> Tuple[str, List[str]]:
-        text = _pdf_text(path) if path.suffix.lower() == PDF_SUFFIX else path.read_text(errors="replace")
+        text = _pdf_text(path) if path.suffix.lower() == PDF_SUFFIX else path.read_text(errors="replace", encoding="utf-8")
         return _slug(path), chunk_text(text, self.settings.chunk_chars, self.settings.chunk_overlap)
 
     def _index(self, per_doc: List[Tuple[str, List[str]]]) -> Tuple[int, List[str]]:
