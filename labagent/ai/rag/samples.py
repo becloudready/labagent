@@ -243,6 +243,7 @@ database. Nothing is hidden behind a library until you have written the same thi
 python -m venv .venv && source .venv/bin/activate      # Windows: .venv\\Scripts\\activate
 python -m pip install --upgrade pip
 pip install -e '.[rag-local]'                          # run from the labagent checkout
+pip install jupyterlab
 jupyter lab                                            # or open the notebooks in VS Code (choose the .venv kernel)
 ```
 
