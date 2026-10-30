@@ -135,9 +135,9 @@ def main(argv=None) -> int:
             return 2
         try:
             if args.tables:
-                m = build_table_snapshot(Path(args.tables), args.name, args.version, Path(args.out))
+                m = build_table_snapshot(Path(args.tables).expanduser(), args.name, args.version, Path(args.out).expanduser())
             else:
-                m = build_snapshot(Path(args.chunks), args.name, args.version, Path(args.out))
+                m = build_snapshot(Path(args.chunks).expanduser(), args.name, args.version, Path(args.out).expanduser())
         except DatasetError as e:
             print(f"error: {e}", file=sys.stderr)
             return 2
@@ -151,7 +151,7 @@ def main(argv=None) -> int:
         print("\n".join(sorted(COMMANDS)))
         return 0
     try:
-        job = json.loads(Path(args.job).read_text(encoding="utf-8"))
+        job = json.loads(Path(args.job).expanduser().read_text(encoding="utf-8"))
         if job.get("command") in PACK_COMMANDS:       # lab packs bring their own credentials: no AWS account guard here
             env = run_pack_job(job)
             _emit(env, args.output)
@@ -159,7 +159,7 @@ def main(argv=None) -> int:
         cfg = load_config(args.config)
         session = boto3.Session(profile_name=args.profile, region_name=cfg.region)
         if getattr(args, "ruleset", None) and "ruleset" not in job:
-            job["ruleset"] = json.loads(Path(args.ruleset).read_text(encoding="utf-8"))
+            job["ruleset"] = json.loads(Path(args.ruleset).expanduser().read_text(encoding="utf-8"))
         env = run_job(Ctx(cfg, session), job)
     except GuardError as e:
         env = Envelope(command="guard").fail(str(e))
