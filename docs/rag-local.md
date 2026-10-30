@@ -19,6 +19,8 @@ labagent rag init --dir rag-lab                        # creates the lab folder
 cd rag-lab && jupyter lab
 ```
 
+To remove the lab when you are done: leave the folder (`cd ..`) and run `labagent rag destroy --dir rag-lab`. It asks you to type `yes`, and refuses folders that are not a RAG lab, your home folder, or the folder you are in. Add `--yes` to skip the question.
+
 Needs Python 3.9 or newer (3.11 or 3.12 recommended), `git`, about 3 GB of disk, and internet on the first run (the install, and
 a 90 MB embedding model from Hugging Face). The local lab is not in the PyPI release 0.2.1, so install from a checkout.
 
