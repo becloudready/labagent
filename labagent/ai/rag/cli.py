@@ -118,8 +118,10 @@ def playground(target: Path, port: int) -> int:
 
 
 def run(args) -> int:
+    # PowerShell and cmd do not expand "~" before the program sees it
+    target = Path(args.dir).expanduser()
     if args.rag_cmd == "init":
-        return init(Path(args.dir), args.force, getattr(args, "solutions", False))
+        return init(target, args.force, getattr(args, "solutions", False))
     if args.rag_cmd == "ide":
-        return ide(Path(args.dir), args.port, args.mode, args.image, args.print_command)
-    return playground(Path(args.dir), args.port)
+        return ide(target, args.port, args.mode, args.image, args.print_command)
+    return playground(target, args.port)

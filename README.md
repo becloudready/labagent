@@ -103,7 +103,15 @@ labagent launch rag-ide --name cohort --param learners=2 --param platform=modal
 
 Each learner gets a URL and a password (credentials file, mode 0600). Sessions stop when idle and at a time cap (`hours`, default 4). Tested with small cohorts, not at 30 learners.
 
-There is also a laptop-only, zero-cost RAG lab where learners build a chunker, a vector store, hybrid search and an evaluation themselves, one notebook at a time: `labagent rag init`. See [docs/rag-local.md](docs/rag-local.md).
+There is also a laptop-only, zero-cost RAG lab where learners build a chunker, a vector store, hybrid search and an evaluation themselves, one notebook at a time:
+
+```bash
+pip install "labagent[rag-lab] @ git+https://github.com/becloudready/labagent"   # includes JupyterLab
+labagent rag init --dir ~/rag-lab
+cd ~/rag-lab && jupyter lab                                                      # then open notebooks/01_chunking.ipynb
+```
+
+On Windows PowerShell use `$HOME\rag-lab` and `cd $HOME\rag-lab`. If you installed `rag-local` instead, add `pip install jupyterlab`, or open the notebooks in VS Code and pick the Python environment you installed into as the kernel. See [docs/rag-local.md](docs/rag-local.md).
 
 ## AWS sandboxes
 

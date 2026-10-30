@@ -341,3 +341,16 @@ def test_sec_tutorial_notebook_is_valid_and_its_code_compiles():
     for src in code:
         ast.parse(src)
     assert "notebooks/09_sec_filings_rag.ipynb" in samples.workspace()
+
+
+def test_rag_dir_expands_tilde(tmp_path, monkeypatch):
+    """PowerShell passes "~" through literally; the CLI must expand it itself."""
+    import argparse
+    from labagent.ai.rag import cli as rag_cli
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    seen = {}
+    monkeypatch.setattr(rag_cli, "init", lambda target, force, solutions: seen.update(t=target) or 0)
+    rag_cli.run(argparse.Namespace(rag_cmd="init", dir="~/lab", force=False))
+    assert seen["t"] == tmp_path / "lab"
