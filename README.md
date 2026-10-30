@@ -111,6 +111,8 @@ labagent rag init --dir ~/rag-lab
 cd ~/rag-lab && jupyter lab                                                      # then open notebooks/01_chunking.ipynb
 ```
 
+When you are done, `cd ..` out of the folder and run `labagent rag destroy --dir ~/rag-lab` (it asks first, and refuses any folder that is not a RAG lab).
+
 On Windows PowerShell use `$HOME\rag-lab` and `cd $HOME\rag-lab`. If you installed `rag-local` instead, add `pip install jupyterlab`, or open the notebooks in VS Code and pick the Python environment you installed into as the kernel. See [docs/rag-local.md](docs/rag-local.md).
 
 ## AWS sandboxes

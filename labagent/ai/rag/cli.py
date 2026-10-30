@@ -1,4 +1,4 @@
-"""`labagent rag init | ide | playground`. Wired into the main parser by labagent.cli (argparse, like launch/destroy)."""
+"""`labagent rag init | destroy | ide | playground`. Wired into the main parser by labagent.cli (argparse, like launch/destroy)."""
 import os
 import secrets
 import shutil
@@ -20,6 +20,9 @@ def add_parser(sub) -> None:
     i.add_argument("--dir", default=".", help="Target folder (default: current)")
     i.add_argument("--force", action="store_true", help="Overwrite files that already exist")
     i.add_argument("--solutions", action="store_true", help="Instructors: also write the solved notebooks to solutions/")
+    x = rs.add_parser("destroy", help="Delete a lab folder created by `rag init` (asks first)")
+    x.add_argument("--dir", required=True, help="The lab folder to delete")
+    x.add_argument("--yes", action="store_true", help="Do not ask for confirmation")
     d = rs.add_parser("ide", help="Start a browser VS Code (code-server) on the workspace")
     d.add_argument("--dir", default=".", help="Workspace folder (initialised if it has no .env)")
     d.add_argument("--port", type=int, default=8080)
@@ -44,6 +47,41 @@ def init(target: Path, force: bool = False, solutions: bool = False) -> int:
     (target / ".env").chmod(0o600)
     print(f"created {len(files)} files in {target.resolve()}")
     print(f"next: open {target / 'README.md'} and start with notebooks/01_chunking.ipynb")
+    return 0
+
+
+def _is_lab(path: Path) -> bool:
+    return all((path / rel).exists() for rel in (".env", "README.md", "notebooks/01_chunking.ipynb"))
+
+
+def _rmtree_onerror(func, path, _exc):
+    """Windows refuses to delete read-only files (.env is chmod 600); clear the flag and retry."""
+    os.chmod(path, 0o700)
+    func(path)
+
+
+def destroy(target: Path, yes: bool = False) -> int:
+    """Delete a lab folder. Refuses anything that does not look like a `rag init` lab, and the home or current folder."""
+    target = target.resolve()
+    if not target.is_dir():
+        print(f"error: {target} does not exist or is not a folder", file=sys.stderr)
+        return 2
+    cwd = Path.cwd().resolve()
+    if target == Path.home().resolve() or target.parent == target or target == cwd or target in cwd.parents:
+        print(f"error: refusing to delete {target} (it is your home folder, a drive root, or contains the current folder). cd out of it first.", file=sys.stderr)
+        return 2
+    if not _is_lab(target):
+        print(f"error: {target} does not look like a labagent RAG lab (needs .env, README.md and notebooks/01_chunking.ipynb). Nothing deleted.", file=sys.stderr)
+        return 2
+    if not yes:
+        if input(f"Delete {target} and everything in it? Type yes to confirm: ").strip().lower() != "yes":
+            print("cancelled, nothing deleted")
+            return 1
+    shutil.rmtree(target, onerror=_rmtree_onerror)
+    if target.exists():
+        print(f"error: {target} could not be fully deleted. Close programs using it (Jupyter, VS Code) and retry.", file=sys.stderr)
+        return 1
+    print(f"deleted {target}")
     return 0
 
 
@@ -122,6 +160,8 @@ def run(args) -> int:
     target = Path(args.dir).expanduser()
     if args.rag_cmd == "init":
         return init(target, args.force, getattr(args, "solutions", False))
+    if args.rag_cmd == "destroy":
+        return destroy(target, args.yes)
     if args.rag_cmd == "ide":
         return ide(target, args.port, args.mode, args.image, args.print_command)
     return playground(target, args.port)

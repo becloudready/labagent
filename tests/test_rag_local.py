@@ -354,3 +354,32 @@ def test_rag_dir_expands_tilde(tmp_path, monkeypatch):
     monkeypatch.setattr(rag_cli, "init", lambda target, force, solutions: seen.update(t=target) or 0)
     rag_cli.run(argparse.Namespace(rag_cmd="init", dir="~/lab", force=False))
     assert seen["t"] == tmp_path / "lab"
+
+
+def test_rag_destroy_removes_lab_and_refuses_others(tmp_path, monkeypatch, capsys):
+    from labagent.ai.rag import cli as rag_cli
+
+    lab = tmp_path / "rag-lab"
+    assert rag_cli.init(lab) == 0
+    other = tmp_path / "docs"
+    other.mkdir()
+    (other / "keep.txt").write_text("x", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    assert rag_cli.destroy(other, yes=True) == 2          # not a lab: refused, untouched
+    assert (other / "keep.txt").exists()
+    assert rag_cli.destroy(tmp_path / "missing", yes=True) == 2
+
+    monkeypatch.setattr("builtins.input", lambda _="": "no")
+    assert rag_cli.destroy(lab) == 1 and lab.exists()      # declined
+    monkeypatch.setattr("builtins.input", lambda _="": "yes")
+    assert rag_cli.destroy(lab) == 0 and not lab.exists()  # confirmed, read-only .env included
+
+
+def test_rag_destroy_refuses_current_folder(tmp_path, monkeypatch):
+    from labagent.ai.rag import cli as rag_cli
+
+    lab = tmp_path / "lab"
+    rag_cli.init(lab)
+    monkeypatch.chdir(lab)
+    assert rag_cli.destroy(lab, yes=True) == 2 and lab.exists()
