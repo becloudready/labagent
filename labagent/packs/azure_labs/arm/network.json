@@ -1,0 +1,94 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "lab": {"type": "string"},
+    "location": {"type": "string"},
+    "tags": {"type": "object"}
+  },
+  "variables": {
+    "gatewayPrefix": "10.20.0.0/24",
+    "studentPrefix": "10.20.1.0/24"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2023-09-01",
+      "name": "[concat('nsg-gateway-', parameters('lab'))]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "allow-https",
+            "properties": {
+              "priority": 100, "direction": "Inbound", "access": "Allow", "protocol": "Tcp",
+              "sourceAddressPrefix": "Internet", "sourcePortRange": "*",
+              "destinationAddressPrefix": "*", "destinationPortRange": "443"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2023-09-01",
+      "name": "[concat('nsg-students-', parameters('lab'))]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "allow-gateway-ssh-rdp",
+            "properties": {
+              "priority": 100, "direction": "Inbound", "access": "Allow", "protocol": "Tcp",
+              "sourceAddressPrefix": "[variables('gatewayPrefix')]", "sourcePortRange": "*",
+              "destinationAddressPrefix": "*", "destinationPortRanges": ["22", "3389"]
+            }
+          },
+          {
+            "name": "deny-other-vnet",
+            "properties": {
+              "priority": 4000, "direction": "Inbound", "access": "Deny", "protocol": "*",
+              "sourceAddressPrefix": "VirtualNetwork", "sourcePortRange": "*",
+              "destinationAddressPrefix": "*", "destinationPortRange": "*"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2023-09-01",
+      "name": "[concat('vnet-', parameters('lab'))]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkSecurityGroups', concat('nsg-gateway-', parameters('lab')))]",
+        "[resourceId('Microsoft.Network/networkSecurityGroups', concat('nsg-students-', parameters('lab')))]"
+      ],
+      "properties": {
+        "addressSpace": {"addressPrefixes": ["10.20.0.0/16"]},
+        "subnets": [
+          {
+            "name": "gateway",
+            "properties": {
+              "addressPrefix": "[variables('gatewayPrefix')]",
+              "networkSecurityGroup": {"id": "[resourceId('Microsoft.Network/networkSecurityGroups', concat('nsg-gateway-', parameters('lab')))]"}
+            }
+          },
+          {
+            "name": "students",
+            "properties": {
+              "addressPrefix": "[variables('studentPrefix')]",
+              "networkSecurityGroup": {"id": "[resourceId('Microsoft.Network/networkSecurityGroups', concat('nsg-students-', parameters('lab')))]"}
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "outputs": {
+    "vnet": {"type": "string", "value": "[concat('vnet-', parameters('lab'))]"}
+  }
+}

@@ -24,6 +24,59 @@ def _emit(env: Envelope, output: str) -> None:
         Path(output).chmod(0o600)
 
 
+def _read_pubkey(path):
+    """PEM text of the orchestrator's public key from --pubkey, or the file named by LABAGENT_PUBKEY. None when neither is set."""
+    import os
+    path = path or os.environ.get("LABAGENT_PUBKEY")
+    return Path(path).expanduser().read_text(encoding="utf-8") if path else None
+
+
+def _secrets_main(args) -> int:
+    from . import secrets_box
+    if args.secrets_cmd == "keygen":
+        out = Path(args.dir).expanduser()
+        out.mkdir(parents=True, exist_ok=True)
+        private, public = secrets_box.generate_keypair()
+        priv_path, pub_path = out / "labagent-private.pem", out / "labagent-public.pem"
+        for path, text, mode in ((priv_path, private, 0o600), (pub_path, public, 0o644)):
+            if path.exists():
+                print(f"error: {path} already exists: refusing to overwrite a key", file=sys.stderr)
+                return 2
+            path.write_text(text, encoding="utf-8")
+            path.chmod(mode)
+        print(f"private key: {priv_path} (keep it secret)\npublic key:  {pub_path} (pass to launch --pubkey)")
+        return 0
+    try:
+        key = secrets_box.load_private_key(Path(args.key).expanduser().read_text(encoding="utf-8"))
+        raw = sys.stdin.read() if args.infile == "-" else Path(args.infile).expanduser().read_text(encoding="utf-8")
+        doc = json.loads(raw)
+        rows = [(s["user"], s.get("kind", ""), secrets_box.decrypt(key, s["ciphertext"])) for s in doc.get("secrets", [])]
+    except (OSError, ValueError, KeyError) as e:
+        print(f"error: could not decrypt: {type(e).__name__}", file=sys.stderr)
+        return 2
+    for user, kind, pw in rows:
+        print(f"{user}\t{kind}\t{pw}")
+    return 0
+
+
+def _sweep_azure_main(args) -> int:
+    from .packs.azure_labs.azcli import AzCli
+    from .packs.base import PackError
+    from . import azure_sweep
+    try:
+        az = AzCli(args.subscription)
+        sub = az.account()["id"]
+        if args.sweep_cmd == "plan":
+            env = azure_sweep.sweep_plan(az, sub)
+        else:
+            doc = json.loads(Path(args.plan).expanduser().read_text(encoding="utf-8"))
+            env = azure_sweep.sweep_apply(az, sub, doc.get("plan") or doc, args.hash, log=lambda m: print(m, file=sys.stderr))
+    except (PackError, OSError, ValueError) as e:
+        env = Envelope(command="sweep-azure").fail(str(e)[:400])
+    _emit(env, args.output)
+    return env.exit_code
+
+
 def _packs_main(args) -> int:
     from .packs import registry
     from .packs.base import run_pack
@@ -44,12 +97,17 @@ def _packs_main(args) -> int:
     if not name:
         print("error: --name is required for this pack", file=sys.stderr)
         return 2
-    env = run_pack(pack, args.cmd, name, given, dry_run=args.dry_run)
+    try:
+        pubkey = _read_pubkey(getattr(args, "pubkey", None))
+    except OSError as e:
+        print(f"error: cannot read the public key: {e}", file=sys.stderr)
+        return 2
+    env = run_pack(pack, args.cmd, name, given, dry_run=args.dry_run, pubkey_pem=pubkey)
     _emit(env, args.output)
     return env.exit_code
 
 
-KNOWN = {"run", "packs", "rag", "dataset", "launch", "destroy", "bootstrap-path", "commands"}
+KNOWN = {"run", "packs", "rag", "dataset", "launch", "destroy", "bootstrap-path", "commands", "sweep-azure", "secrets"}
 
 
 def _nl_main(argv) -> int:
@@ -121,6 +179,24 @@ def main(argv=None) -> int:
         lp.add_argument("--param", action="append", default=[], metavar="KEY=VALUE", help="Pack parameter, repeatable")
         lp.add_argument("--dry-run", action="store_true", help="Show the steps without running them")
         lp.add_argument("--output", default="-", help="Result envelope path, or - for stdout")
+        if verb == "launch":
+            lp.add_argument("--pubkey", help="PEM public key: passwords a pack creates are returned encrypted to it (or set LABAGENT_PUBKEY to the file path)")
+    sw = sub.add_parser("sweep-azure", help="Delete azure-labs labs past their expiry: plan first, then apply that plan")
+    sw.add_argument("--subscription", help="Subscription ID or name (default: the one az login selected)")
+    sws = sw.add_subparsers(dest="sweep_cmd", required=True)
+    swp = sws.add_parser("plan", help="List expired labs and write a plan (changes nothing)")
+    swp.add_argument("--output", default="-", help="Plan envelope path, or - for stdout")
+    swa = sws.add_parser("apply", help="Delete exactly the labs in a reviewed plan")
+    swa.add_argument("--plan", required=True, help="Plan file from `sweep-azure plan`")
+    swa.add_argument("--hash", required=True, help="The plan hash you approved")
+    swa.add_argument("--output", default="-", help="Result envelope path, or - for stdout")
+    sc = sub.add_parser("secrets", help="Create a key pair, or decrypt the passwords in a result envelope")
+    scs = sc.add_subparsers(dest="secrets_cmd", required=True)
+    kg = scs.add_parser("keygen", help="Write labagent-private.pem and labagent-public.pem")
+    kg.add_argument("--dir", default=".", help="Folder for the key files")
+    dc = scs.add_parser("decrypt", help="Print user, kind and password for every secret in a result envelope")
+    dc.add_argument("--key", required=True, help="Private key PEM")
+    dc.add_argument("--in", dest="infile", default="-", help="Result envelope JSON (default: stdin)")
     sub.add_parser("bootstrap-path", help="Print the path of the packaged Terraform state-backend module")
     sub.add_parser("commands", help="List supported job commands")
     args = p.parse_args(argv)
@@ -147,6 +223,10 @@ def main(argv=None) -> int:
         return rag_cli.run(args)
     if args.cmd in ("packs", "launch", "destroy"):
         return _packs_main(args)
+    if args.cmd == "sweep-azure":
+        return _sweep_azure_main(args)
+    if args.cmd == "secrets":
+        return _secrets_main(args)
     if args.cmd == "commands":
         print("\n".join(sorted(COMMANDS)))
         return 0

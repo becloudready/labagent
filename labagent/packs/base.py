@@ -38,6 +38,7 @@ class PackContext:
     mem: Dict[str, Any] = field(default_factory=dict)        # in-memory only (tokens, connections)
     services: Dict[str, Any] = field(default_factory=dict)   # injected: dbx, pg_connect, ... (tests swap these)
     log: Callable[[str], None] = lambda m: print(m, file=sys.stderr)
+    pubkey_pem: Optional[str] = None                         # set when `launch --pubkey` is given; packs that mint passwords need it
 
 
 @dataclass
@@ -121,7 +122,7 @@ def _seal_passwords(env: Envelope, ctx: PackContext, pubkey_pem: Optional[str]) 
         return
     from ..secrets_box import encrypt, load_public_key
     key = load_public_key(pubkey_pem)
-    env.secrets = [{"user": user, "kind": "ide_password", "ciphertext": encrypt(key, pw)} for user, pw in sorted(secrets_in.items())
+    env.secrets = [{"user": user, "kind": ctx.mem.get("password_kind", "ide_password"), "ciphertext": encrypt(key, pw)} for user, pw in sorted(secrets_in.items())
                    if not str(pw).startswith("(")]
 
 
@@ -134,6 +135,7 @@ def run_pack(pack: Pack, action: str, name: str, given: Dict[str, Any], services
         return env.fail(str(e))
     ctx = PackContext(pack.id, name, params, state=load_state(pack.id, name),
                       services=services if services is not None else pack.services(params.get("profile")))
+    ctx.pubkey_pem = pubkey_pem
     if log:
         ctx.log = log
     steps = pack.deploy_steps(ctx) if action == "launch" else pack.destroy_steps(ctx)

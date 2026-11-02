@@ -94,7 +94,7 @@ def test_prompt_is_small_lists_real_packs_and_asks_only_for_action_and_pack():
     sys_prompt = msgs[0]["content"]
     assert "rag-sec-tutorial" in sys_prompt and "rag-tutorial" in sys_prompt and "db-agent" in sys_prompt and "rag-ide" in sys_prompt
     assert "idle_minutes" not in sys_prompt and "profile" not in sys_prompt            # parameters are not the model's job
-    assert len(sys_prompt) < 2500                                               # short enough for a 0.5b model to follow
+    assert len(sys_prompt) < 3000                                               # short enough for a 0.5b model to follow; each pack adds about 300
     assert msgs[1]["content"] == "Request: deploy rag-tutorial"
 
 
