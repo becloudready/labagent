@@ -115,6 +115,16 @@ When you are done, `cd ..` out of the folder and run `labagent rag destroy --dir
 
 On Windows PowerShell use `$HOME\rag-lab` and `cd $HOME\rag-lab`. If you installed `rag-local` instead, add `pip install jupyterlab`, or open the notebooks in VS Code and pick the Python environment you installed into as the kernel. See [docs/rag-local.md](docs/rag-local.md).
 
+## Azure Labs: move Azure VMs to another resource group
+
+Lift and shift VMs, disks and network from one Azure resource group to another with snapshots, or snapshot a dead VM or disk into a group of its own. It never changes the source.
+An alternative for people leaving Azure Lab Services (retiring June 28, 2027), not Azure Lab Services itself. [Guide](docs/azure-labs.md)
+
+```bash
+labagent launch azure-labs --name move1 --param source_rg=azure-labs-legacy --param target_rg=azure-labs-new
+labagent destroy azure-labs --name move1        # deletes only what that run created
+```
+
 ## AWS sandboxes
 
 ```bash

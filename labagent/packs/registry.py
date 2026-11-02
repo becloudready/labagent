@@ -13,7 +13,8 @@ def builtin() -> Dict[str, Pack]:
     from .aml.pack import AmlLab
     from .dbx_workspace.pack import DatabricksWorkspace
     from .dbx_lakehouse.pack import DatabricksLakehouse
-    return {p.id: p for p in (RagSecTutorial(), DbAgent(), RagIde(), AmlLab(), DatabricksWorkspace(), DatabricksLakehouse())}
+    from .azure_labs.pack import AzureLabs
+    return {p.id: p for p in (RagSecTutorial(), DbAgent(), RagIde(), AmlLab(), DatabricksWorkspace(), DatabricksLakehouse(), AzureLabs())}
 
 
 def all_packs() -> Dict[str, Pack]:
