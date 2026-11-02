@@ -38,21 +38,23 @@ def destroy_owned(az: Any, group: str, name: str, log: Callable[[str], None] = l
     if info is None:
         return {"group_deleted": False, "resources_deleted": 0}
     deleted = 0
+    gone = set()                                 # ids az reported deleted: the resource list can lag behind for a few seconds
     for _ in range(ROUNDS):
-        mine = [r for r in az.resources(group) if safety.owned(r.get("tags"), name) and r["type"].count("/") == 1]
+        mine = [r for r in az.resources(group) if safety.owned(r.get("tags"), name) and r["type"].count("/") == 1 and r["id"] not in gone]
         if not mine:
             break
         failed = 0
         for r in sorted(mine, key=lambda x: _rank(x["type"])):
             try:
                 az.resource_delete(r["id"])
+                gone.add(r["id"])
                 deleted += 1
                 log(f"  deleted {r['type'].split('/')[-1]} {r['name']}")
             except PackError:
                 failed += 1                          # usually a dependency that is not gone yet: the next round retries
         if not failed:
             break
-    left = [r for r in az.resources(group) if r["type"].count("/") == 1]
+    left = [r for r in az.resources(group) if r["type"].count("/") == 1 and r["id"] not in gone]
     mine_left = [r["name"] for r in left if safety.owned(r.get("tags"), name)]
     foreign = [r["name"] for r in left if not safety.owned(r.get("tags"), name)]
     if mine_left:

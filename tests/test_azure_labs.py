@@ -287,6 +287,19 @@ def test_destroy_never_works_on_the_source_group_and_needs_a_target():
     assert "target_rg" in run_pack(AzureLabs(), "destroy", "other", {}, services={"az": FakeAz()}, log=lambda m: None).error
 
 
+def test_destroy_trusts_a_delete_that_succeeded_even_if_the_list_still_shows_the_resource():
+    az = FakeAz()
+    launch(az)
+    real = az.resource_delete
+    stale = []
+    az.resource_delete = lambda r: (real(r), stale.append(r))                        # deleted, but the list below still shows it
+    listing = az.resources
+    az.resources = lambda g: listing(g) + [x for x in az.groups[DST]["resources"] if False] + (
+        [{"id": s, "name": s.split("/")[-1], "type": "Microsoft.Network/networkSecurityGroups", "tags": dict(az.groups[DST]["tags"], pack="azure-labs", name="mig", labagent="1")}
+         for s in stale if s.endswith("legacy-nsg")] if g == DST and DST in az.groups else [])
+    assert destroy(az).status == "ok" and DST not in az.groups
+
+
 def test_destroy_reports_a_resource_it_cannot_delete():
     az = FakeAz()
     launch(az)
