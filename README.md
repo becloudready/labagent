@@ -1,152 +1,56 @@
-# labagent: hands-on labs CLI for RAG, text-to-SQL, Databricks and AWS sandboxes
-
-> Launch a hands-on lab with one command. Remove it with one more. Labs for **RAG**, **text-to-SQL** on **Databricks Lakebase** (pgvector), a **browser VS Code per learner**, and **AWS sandboxes** with Terraform.
+# labagent: CLI to launch hands-on labs for RAG, text-to-SQL, Databricks, AWS and Azure
 
 [![PyPI](https://img.shields.io/pypi/v/labagent)](https://pypi.org/project/labagent/)
 [![Python](https://img.shields.io/pypi/pyversions/labagent)](https://pypi.org/project/labagent/)
 [![CI](https://github.com/becloudready/labagent/actions/workflows/ci.yml/badge.svg)](https://github.com/becloudready/labagent/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
-[![Databricks Free Edition](https://img.shields.io/badge/Databricks-Free%20Edition-FF3621)](docs/packs.md)
 
-**Related:** [DB Agent](https://github.com/db-agent/db-agent) | [labagent-datasets](https://github.com/becloudready/labagent-datasets) | [BeCloudReady workshops](https://github.com/becloudready/workshops)
-
-## What it does
-
-A lab is a **pack**: ordered steps that are safe to re-run. `launch` builds it and resumes after a failure. `destroy` removes only what the pack created.
-
-- **Databricks labs.** A step-by-step RAG tutorial over real SEC 10-K filings (notebooks you run), and a text-to-SQL agent, in your own Free Edition workspace.
-- **Web IDE per learner.** Private browser VS Code with the RAG lab preinstalled, on Modal, EC2 or local Docker.
-- **AWS sandboxes.** Cohort IAM with Terraform, plus plan-then-apply cleanup of shared accounts.
-- **Plain English.** `labagent "deploy rag-tutorial"` shows the command it understood and asks first (local Ollama, any OpenAI-compatible endpoint).
-
-## Install
-
-The packs and extras described here are on `main`. The release on PyPI (0.2.1) is older: it has no `aml`, `dbx-lakehouse`, `dbx-workspace`, `rag-ide` or `rag-sec-tutorial` pack and no `rag-local` or `aml` extra. Until the next release, install from GitHub. These lines work in bash, PowerShell and cmd:
-
-```
-python -m pip install --upgrade pip
-pip install "labagent[rag-local,aml] @ git+https://github.com/becloudready/labagent"
-labagent packs                         # you should see aml, dbx-lakehouse, rag-sec-tutorial ...
-```
-
-Use `labagent[rag]` for the Databricks RAG tutorial, or a clone with `pip install -e ".[rag-local,aml]"` if you want to edit the code.
-
-## Quick start
+labagent builds a lab with one command and removes it with one more. Each lab is a **pack**: ordered, re-runnable steps. `launch` resumes after a failure. `destroy` removes only what the pack created.
 
 ```bash
-pip install "labagent[rag] @ git+https://github.com/becloudready/labagent"      # Python 3.9+; sign in with: databricks auth login
-labagent packs                         # list the labs
-labagent launch rag-sec-tutorial --name demo     # uploads the notebooks to your workspace; you run them
-labagent destroy rag-sec-tutorial --name demo    # removes the uploaded folder
+pip install labagent
+labagent packs                                   # list labs (add --json for a machine-readable catalog)
+labagent launch <pack> --name demo --param k=v   # build or resume
+labagent destroy <pack> --name demo              # remove what launch created
 ```
 
-## Labs
+Extras: `labagent[rag]` (Databricks RAG), `[rag-local]` (laptop RAG), `[rag-lab]` (laptop RAG with JupyterLab), `[aml]`, `[modal]`. Python 3.9+. Add `--dry-run` to any launch to see the steps.
 
-| Pack | What you get | Runs on |
+## Packs
+
+| Pack | What it builds | Where |
 |---|---|---|
-| `rag-sec-tutorial` | Nine notebooks that build RAG on a pinned SEC 10-K dataset one step at a time: embeddings, pgvector, hybrid search, filters, citations, an evaluation gate, and the deployed app. Each ends with a check cell | Databricks Free Edition |
-| `db-agent` | [db-agent](https://github.com/db-agent/db-agent) text-to-SQL over a Databricks sample dataset, pinned commit | Databricks Free Edition |
-| `rag-ide` | A private browser VS Code per learner with the RAG lab and notebooks | Modal, EC2 or local Docker |
-| `dbx-workspace` | A premium Databricks workspace in your own AWS account or Azure subscription, created with Terraform. Plan first: nothing is created without `apply=yes`. AWS can add your users to the workspace. [Guide](docs/dbx-workspace.md) | AWS or Azure (costs apply) |
-| `dbx-lakehouse` | A ready-to-teach medallion lakehouse: bronze, silver and gold tables in Unity Catalog from real open data (online retail, synthetic healthcare), with masks, a row filter, SQL notebooks and exercises. [Guide](docs/dbx-lakehouse.md) | Databricks Free Edition, AWS or Azure |
-| `aml` | A synthetic anti-money laundering lab with an answer key: a RAG lab for developers (`mode=rag`) and a Microsoft 365 Copilot lab for staff (`mode=copilot`), for Canada or the US. [Guide](docs/aml.md) | Your machine, no cloud account |
+| `azure-labs` | Copy Azure VMs, disks and network from one resource group to another with snapshots, or snapshot a dead VM or disk. Source is read-only. An Azure Lab Services alternative. [Guide](docs/azure-labs.md) | Azure (needs `az login`) |
+| `rag-sec-tutorial` | Nine notebooks: RAG on SEC 10-K filings with embeddings, pgvector, hybrid search, citations, an evaluation gate, a deployed app | Databricks Free Edition |
+| `db-agent` | [db-agent](https://github.com/db-agent/db-agent) text-to-SQL app on Databricks Apps, pinned commit | Databricks Free Edition |
+| `dbx-lakehouse` | Medallion lakehouse (bronze, silver, gold) from real open data, with masks, a row filter, notebooks and exercises. [Guide](docs/dbx-lakehouse.md) | Databricks Free Edition, AWS, Azure |
+| `dbx-workspace` | Premium Databricks workspace via Terraform. Plan only unless `apply=yes`. [Guide](docs/dbx-workspace.md) | AWS or Azure (costs money) |
+| `aml` | Synthetic anti-money-laundering lab with an answer key: RAG for developers, Microsoft 365 Copilot for staff. [Guide](docs/aml.md) | Your machine |
+| `rag-ide` | Private browser VS Code per learner with the RAG lab | Modal, EC2 or Docker |
 
-Free Edition limits apply (one Lakebase project, three apps). Details: [docs/packs.md](docs/packs.md).
+Also: `labagent rag init --dir ~/rag-lab` makes a laptop RAG lab of nine notebooks (needs `[rag-lab]`), and `labagent rag destroy --dir ~/rag-lab` removes it. See [docs/rag-local.md](docs/rag-local.md). AWS cohort sandboxes (Terraform IAM, plan-then-apply cleanup) run through `labagent run --job job.json`: see [docs/job-contract.md](docs/job-contract.md).
 
-## AML lab (synthetic data, RAG and Copilot)
-
-```bash
-pip install "labagent[rag-local,aml] @ git+https://github.com/becloudready/labagent"
-labagent launch aml --name demo --param mode=rag --param jurisdiction=ca        # developers: indexed corpus, helper, quality checks
-labagent launch aml --name spring --param mode=copilot --param jurisdiction=ca   # staff: Excel and Word files, 13 exercises, instructor folder
-```
-
-It generates a made-up credit union with 8 laundering patterns, an answer key for every alert, policies, case files and regulation text. The labels come from how the data is built, not from an investigator. See [docs/aml.md](docs/aml.md).
-
-## Premium Databricks workspace (AWS or Azure)
+## Azure: move VMs between resource groups
 
 ```bash
-# AWS: AWS credentials, plus the OAuth client id and secret of an account-level Databricks service principal
-export LABAGENT_ALLOWED_ACCOUNTS=<aws account id> DATABRICKS_CLIENT_ID=... DATABRICKS_CLIENT_SECRET=...
-labagent launch dbx-workspace --name team1 --param cloud=aws --param account_id=<databricks account id>                 # plan only
-labagent launch dbx-workspace --name team1 --param cloud=aws --param account_id=<id> --param apply=yes \
-  --param admin_emails=you@example.com                                                                                  # create, and give you access
-labagent destroy dbx-workspace --name team1 --param cloud=aws --param account_id=<id> --param apply=yes --param force_destroy=yes
+export LABAGENT_ALLOWED_AZURE_SUBSCRIPTIONS=$(az account show --query id -o tsv)
+labagent launch azure-labs --name move1 --param source_rg=legacy-rg --param target_rg=new-rg
+labagent launch azure-labs --name old1 --param source_rg=legacy-rg --param target_rg=archive-rg --param snapshot_only=true
+labagent destroy azure-labs --name move1 --param target_rg=new-rg
 ```
 
-Azure works the same with `--param cloud=azure` and `LABAGENT_ALLOWED_SUBSCRIPTIONS` after `az login`. It needs the Terraform CLI (1.9 or later) or OpenTofu. Nothing is created without `apply=yes`, and the pack refuses accounts that are not on the allow list.
+Parameters: `source_rg`, `target_rg`, `vms` (comma list, default all), `snapshot_only`, `subscription`. Same subscription and region. It does not copy availability sets, scale sets, unmanaged VHDs, customer-key encryption, extensions or public IP addresses (a new address is created). Tested on a real subscription with Ubuntu VMs. Not Azure Lab Services and not from Microsoft.
 
-Status: the AWS workspace with a Databricks-created network has been created end to end in a real account. Azure, `network=custom` and `admin_emails` are tested only with mocked providers so far. See [docs/dbx-workspace.md](docs/dbx-workspace.md).
+## For AI coding agents and scripts
 
-## Teaching lakehouse (bronze, silver, gold)
+- Output is one JSON envelope on stdout (`status`: `ok`, `partial`, `failed`; `items` per step). Exit code 0, 1, 2. Logs go to stderr and never contain secrets.
+- `labagent packs --json` lists every pack with parameters, defaults, platforms and cost tier.
+- Every `launch` is idempotent. Run it again to resume. `destroy` deletes only resources carrying the pack's tags or state.
+- Safety gates: `LABAGENT_ALLOWED_ACCOUNTS` (AWS), `LABAGENT_ALLOWED_SUBSCRIPTIONS` (Databricks on Azure), `LABAGENT_ALLOWED_AZURE_SUBSCRIPTIONS` (azure-labs). An empty list refuses to run.
+- Plain English front end: `labagent "deploy rag-tutorial"` prints the command it understood and asks first (local Ollama or any OpenAI-compatible endpoint).
 
-```bash
-databricks auth login
-labagent launch dbx-lakehouse --name lab1                      # retail + healthcare, built and checked
-labagent destroy dbx-lakehouse --name lab1                     # drops what the pack created
-```
+## Status
 
-Real open data (UCI Online Retail II, Synthea synthetic patients) carried through all three layers in Unity Catalog, with column masks, a row filter, a sandbox schema, and SQL notebooks with exercises. Needs only a SQL warehouse, so it runs on Free Edition, AWS and Azure. Status: built and destroyed on Databricks Free Edition. AWS and Azure not run yet. See [docs/dbx-lakehouse.md](docs/dbx-lakehouse.md).
+Run end to end on real services: Databricks Free Edition labs, the AWS premium workspace, and azure-labs copy and delete on Azure. Tested only against mocks so far: Azure and custom-network `dbx-workspace`, and `dbx-lakehouse` on AWS and Azure. Try labs in a throwaway workspace or account first.
 
-## Web IDE per learner (unreleased: install from GitHub)
-
-```bash
-pip install 'labagent[modal] @ git+https://github.com/becloudready/labagent'
-labagent launch rag-ide --name cohort --param learners=2 --param platform=modal
-```
-
-| `platform` | How | Needs |
-|---|---|---|
-| `modal` (default) | One serverless sandbox per learner | `modal token new` |
-| `ec2` | One shared instance per cohort, a container per learner, HTTPS | An AWS profile (`--param profile=...`) in `LABAGENT_ALLOWED_ACCOUNTS` |
-| `local` | Containers on this machine, loopback only | Docker |
-
-Each learner gets a URL and a password (credentials file, mode 0600). Sessions stop when idle and at a time cap (`hours`, default 4). Tested with small cohorts, not at 30 learners.
-
-There is also a laptop-only, zero-cost RAG lab where learners build a chunker, a vector store, hybrid search and an evaluation themselves, one notebook at a time:
-
-```bash
-pip install "labagent[rag-lab] @ git+https://github.com/becloudready/labagent"   # includes JupyterLab
-labagent rag init --dir ~/rag-lab
-cd ~/rag-lab && jupyter lab                                                      # then open notebooks/01_chunking.ipynb
-```
-
-When you are done, `cd ..` out of the folder and run `labagent rag destroy --dir ~/rag-lab` (it asks first, and refuses any folder that is not a RAG lab).
-
-On Windows PowerShell use `$HOME\rag-lab` and `cd $HOME\rag-lab`. If you installed `rag-local` instead, add `pip install jupyterlab`, or open the notebooks in VS Code and pick the Python environment you installed into as the kernel. See [docs/rag-local.md](docs/rag-local.md).
-
-## Azure Labs: move Azure VMs to another resource group
-
-Lift and shift VMs, disks and network from one Azure resource group to another with snapshots, or snapshot a dead VM or disk into a group of its own. It never changes the source.
-An alternative for people leaving Azure Lab Services (retiring June 28, 2027), not Azure Lab Services itself. [Guide](docs/azure-labs.md)
-
-```bash
-labagent launch azure-labs --name move1 --param source_rg=azure-labs-legacy --param target_rg=azure-labs-new
-labagent destroy azure-labs --name move1        # deletes only what that run created
-```
-
-## AWS sandboxes
-
-```bash
-labagent --config lab.json run --job job.json --output result.json
-```
-
-| Command | What it does |
-|---|---|
-| `provision`, `offboard` | Create or destroy a cohort's IAM layer with Terraform |
-| `inventory`, `sweep` | List and delete learner resources: plan first, then apply that reviewed plan |
-| `reset` | Rotate a password (returned encrypted to your public key) |
-| `audit`, `cleanup` | Clean a long-lived account from a ruleset |
-
-See [job-contract](docs/job-contract.md), [state and secrets](docs/state-and-secrets.md), [account cleanup](docs/account-cleanup.md).
-
-## Safety
-
-- Plan first, then apply that exact plan. Only a `delete` rule can delete; unmatched resources are reported, never removed.
-- AWS commands refuse to run in an account that is not on your allow list.
-- Labs use your own credentials. The db-agent token is stored as an app secret and revoked on `destroy`.
-- Tests keep secrets and personal data out of the repo and out of logs.
-
-Early release: try labs in a throwaway workspace or account first. Apache-2.0. See [SECURITY.md](SECURITY.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
-
-Maintained by [BeCloudReady](https://becloudready.com/).
+Apache-2.0. [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md), [docs/packs.md](docs/packs.md). Related: [db-agent](https://github.com/db-agent/db-agent), [labagent-datasets](https://github.com/becloudready/labagent-datasets). Maintained by [BeCloudReady](https://becloudready.com/).
