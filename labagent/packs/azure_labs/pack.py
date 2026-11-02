@@ -71,6 +71,7 @@ class AzureLabs(Pack):
         p = safety.validate(ctx.params)
         sub = self._login(ctx)
         az = self._az(ctx)
+        ctx.log("  checking VM sizes and quota in the region (the size list can take a minute) ...")
         family = az.sku_family(p["vm_size"], p["region"])
         gw_family = az.sku_family(safety.GATEWAY_SIZE, p["region"])
         total, families = lifecycle.peak_demand(family, p["vcpus"], p["students"], gw_family, safety.SIZES[safety.GATEWAY_SIZE])

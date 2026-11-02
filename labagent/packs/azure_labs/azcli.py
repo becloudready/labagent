@@ -60,14 +60,22 @@ class AzCli:
         rows = self.json("vm", "list-usage", "-l", region)
         return {r["name"]["value"]: {"used": int(r["currentValue"]), "limit": int(r["limit"])} for r in rows}
 
+    def _skus(self, region: str) -> Dict[str, Dict[str, Any]]:
+        """Every VM size in the region, fetched once per run. `az vm list-skus --size` filters on the client, so one call is cheaper than several."""
+        cache = self.__dict__.setdefault("_sku_cache", {})
+        if region not in cache:
+            rows = self.json("vm", "list-skus", "-l", region, "--resource-type", "virtualMachines",
+                             "--query", "[].{name:name,family:family,restricted:length(restrictions)}")
+            cache[region] = {r["name"]: r for r in rows}
+        return cache[region]
+
     def sku_family(self, size: str, region: str) -> str:
-        rows = self.json("vm", "list-skus", "-l", region, "--size", size, "--resource-type", "virtualMachines")
-        for r in rows:
-            if r.get("name") == size:
-                if r.get("restrictions"):
-                    raise PackError(f"{size} is restricted in {region} for this subscription. Pick another size or region.")
-                return r["family"]
-        raise PackError(f"{size} is not available in {region}")
+        row = self._skus(region).get(size)
+        if row is None:
+            raise PackError(f"{size} is not available in {region}")
+        if row.get("restricted"):
+            raise PackError(f"{size} is restricted in {region} for this subscription. Pick another size or region.")
+        return row["family"]
 
     # ---- groups and resources -----------------------------------------------------------------------------------------
     def group_exists(self, name: str) -> bool:

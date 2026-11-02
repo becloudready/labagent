@@ -393,10 +393,19 @@ def test_azcli_deploy_keeps_secrets_off_the_command_line_and_removes_the_file():
 def test_azcli_usage_and_sku_family_parse_az_output():
     usage = [{"name": {"value": "cores"}, "currentValue": "2", "limit": "10"}]
     assert AzCli(run=lambda c, **k: Proc(json.dumps(usage)), binary="az").usage("canadacentral") == {"cores": {"used": 2, "limit": 10}}
-    skus = [{"name": "Standard_B2s", "family": "standardBSFamily", "restrictions": []}]
-    assert AzCli(run=lambda c, **k: Proc(json.dumps(skus)), binary="az").sku_family("Standard_B2s", "canadacentral") == "standardBSFamily"
+    calls = []
+
+    def run(c, **k):
+        calls.append(c)
+        return Proc(json.dumps([{"name": "Standard_B2s", "family": "standardBSFamily", "restricted": 0},
+                                {"name": "Standard_D2s_v5", "family": "standardDSv5Family", "restricted": 1}]))
+    az = AzCli(run=run, binary="az")
+    assert az.sku_family("Standard_B2s", "canadacentral") == "standardBSFamily"
+    with pytest.raises(PackError, match="restricted"):
+        az.sku_family("Standard_D2s_v5", "canadacentral")
     with pytest.raises(PackError, match="not available"):
-        AzCli(run=lambda c, **k: Proc("[]"), binary="az").sku_family("Standard_B2s", "canadacentral")
+        az.sku_family("Standard_Nope", "canadacentral")
+    assert len(calls) == 1                                             # one az call for every lookup in the region
 
 
 # ---- keys and secrets -----------------------------------------------------------------------------------------------------
