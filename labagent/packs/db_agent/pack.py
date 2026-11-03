@@ -26,7 +26,7 @@ from ..gitsrc import clone_pinned
 from ..databricks.models import CHAT_RE, EMBED_RE
 
 REPO = "https://github.com/db-agent/db-agent"
-PINNED = "eef0a308d052b6bdd00fdfec7ee1c9a61c01426f"        # reviewed commit; change it deliberately (see docs/packs.md)
+PINNED = "15150ab87b2d50ed8fee71408afbd2f6aba54a14"        # reviewed commit; change it deliberately (see docs/packs.md)
 SECRET_KEY = "token"
 SMOKE_QUESTION = "How many customers are there?"
 IGNORE = shutil.ignore_patterns("node_modules", "dist", ".env", ".env.*", "knowledge.json", "*.log", "__pycache__")
