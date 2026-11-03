@@ -87,7 +87,11 @@ labagent destroy db-agent --name demo
 Steps: `preflight` (login, SQL warehouse, sample data, serving endpoints), `fetch` (pinned commit), `token`, `app`, `verify`
 (asks a real question through the deployed app: this proves the token, warehouse, LLM and SQL safety layer work together).
 
-- **Pinned code.** `ref` must be a full commit SHA, and the clone is refused if HEAD differs. To move to a newer db-agent, review it and change the pin.
+- **What it picks.** Chat model: `--param chat_endpoint`, else the first serving endpoint named like `llama|gpt|claude|gemma|qwen|instruct|chat`. Embedding model:
+  `--param embedding_endpoint`, else the first named like `gte|bge|embed`. The app calls `<workspace host>/serving-endpoints` with its token. Data: `catalog` (default `samples`)
+  and `dataset` (default `bakehouse`); preflight fails with the list of schemas if it is missing. Warehouse: `--param warehouse` (id or name), else the first one.
+  These are first-match guesses: pass the names yourself when the workspace has several. Preflight records the choices as `chat_endpoint`, `embedding_endpoint` and `warehouse_id`.
+- **Pinned code.** `ref` must be a full commit SHA, and the clone is refused if HEAD differs. To move to a newer db-agent, review it and change the pin (`PINNED` in `labagent/packs/db_agent/pack.py`), or try one commit with `--param ref=<full SHA>`.
 - **Data.** The `samples` catalog already exists in every workspace, so nothing is downloaded or redistributed.
 - **Credential.** The app needs a token for the warehouse and the LLM. labagent creates one with a 30-day lifetime (`--param token_days`), stores it
   only as an app secret (via stdin, never on a command line, in state or in output), and `destroy` revokes it. If your workspace blocks
