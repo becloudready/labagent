@@ -7,6 +7,12 @@
 
 labagent builds a lab with one command and removes it with one more. Each lab is a **pack**: ordered, re-runnable steps. `launch` resumes after a failure. `destroy` removes only what the pack created.
 
+On Mac
+```bash
+brew install pipx && pipx ensurepath
+pipx install labagent
+```
+
 ```bash
 pip install labagent                             # Mac: brew install pipx && pipx ensurepath && pipx install labagent
 labagent packs                                   # list labs (add --json for a machine-readable catalog)
