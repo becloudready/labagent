@@ -159,3 +159,12 @@ def test_packs_json_never_contains_a_credential(capsys, home, monkeypatch):
     monkeypatch.setenv("GROQ_API_KEY", "gsk_" + "a" * 40)
     main(["packs", "--json"])
     assert "gsk_" not in capsys.readouterr().out
+
+
+def test_cli_error_skips_the_version_notice():
+    from labagent.packs.databricks.cli import redact
+    text = ("Your current $PATH prefers running CLI v0.18.0 at /x/databricks\n\nBecause both are installed...\n"
+            "Executing CLI v1.23.0...\n------------------------\nError: Failed to create app: limit of 3 apps reached")
+    out = redact(text)
+    assert out.startswith("Error: Failed to create app: limit of 3 apps reached")
+    assert "prefers" not in out

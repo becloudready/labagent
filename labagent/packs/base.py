@@ -152,7 +152,7 @@ def run_pack(pack: Pack, action: str, name: str, given: Dict[str, Any], services
             save_state(pack.id, name, ctx.state)
             item["state"] = "done"
         except PackError as e:
-            item.update(state="failed", error=str(e)[:400])
+            item.update(state="failed", error=str(e)[:600])
             break
         except Exception as e:  # unexpected: class name only, never the message (could carry a token)
             item.update(state="failed", error=type(e).__name__)

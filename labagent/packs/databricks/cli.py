@@ -14,7 +14,10 @@ SECRET = re.compile(r"(dapi[0-9a-f]{20,}|eyJ[\w-]{20,}\.[\w-]{10,}\.[\w-]{10,})"
 
 
 def redact(text: str, tail: int = 8) -> str:
-    return SECRET.sub("<redacted>", "\n".join(text.strip().splitlines()[-tail:]))[:1200]
+    lines = text.strip().splitlines()
+    # a newer CLI prints a "Your current $PATH prefers running CLI v0.x ..." notice before the real error: start at the error
+    start = next((i for i, l in enumerate(lines) if l.startswith("Error")), 0)
+    return SECRET.sub("<redacted>", "\n".join(lines[start:][:tail] if start else lines[-tail:]))[:1200]
 
 
 class Dbx:
