@@ -8,13 +8,13 @@
 labagent builds a lab with one command and removes it with one more. Each lab is a **pack**: ordered, re-runnable steps. `launch` resumes after a failure. `destroy` removes only what the pack created.
 
 ```bash
-pip install labagent
+pip install labagent                             # Mac: brew install pipx && pipx ensurepath && pipx install labagent
 labagent packs                                   # list labs (add --json for a machine-readable catalog)
 labagent launch <pack> --name demo --param k=v   # build or resume
 labagent destroy <pack> --name demo              # remove what launch created
 ```
 
-Extras: `labagent[rag]` (Databricks RAG), `[rag-local]` (laptop RAG), `[rag-lab]` (laptop RAG with JupyterLab), `[aml]`, `[modal]`. Python 3.9+. Add `--dry-run` to any launch to see the steps.
+Extras: `labagent[rag]` (Databricks RAG), `[rag-local]` (laptop RAG), `[rag-lab]` (laptop RAG with JupyterLab), `[aml]`, `[modal]`. Python 3.9+. On a Mac, use pipx (above): plain `pip install` puts `labagent` in `~/Library/Python/3.X/bin`, which is not on your PATH. Add `--dry-run` to any launch to see the steps.
 
 ## Packs
 
