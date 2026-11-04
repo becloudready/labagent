@@ -7,10 +7,17 @@
 
 labagent builds a lab with one command and removes it with one more. Each lab is a **pack**: ordered, re-runnable steps. `launch` resumes after a failure. `destroy` removes only what the pack created.
 
-On Mac
+PIP setup On Mac
 ```bash
 brew install pipx && pipx ensurepath
 pipx install labagent
+```
+PIP setup on Windows
+```powershell
+# 1. Install prerequisites & labagent
+winget install Python.Python.3.14
+Invoke-WebRequest -Uri https://bootstrap.pypa.io/get-pip.py -OutFile get-pip.py
+python get-pip.py
 ```
 
 ```bash
