@@ -281,3 +281,59 @@ def test_destroy_keeps_a_notebook_the_learner_edited_and_removes_the_rest(home):
     mine.write_text(mine.read_text().replace("TODO", "DONE", 1))
     run_pack(AmlLab(), "destroy", "t", {"out": str(out)}, services={})
     assert mine.exists() and not (out / "notebooks" / "01_policy_search.ipynb").exists() and not (out / "tables").exists()
+
+
+ALERTS = [{"id": "AL1", "account": "A1", "amount": "100.00"}, {"id": "AL2", "account": "A2", "amount": "303,971.81"},
+          {"id": "AL3", "account": "A1", "amount": "50"}, {"id": "AL4", "account": "A3", "amount": "75"}]
+
+
+def test_whole_table_questions_are_computed_from_every_row():
+    from labagent.packs.aml.rag.aggregate import answer_from_table
+    assert "AL2" in answer_from_table("Which account has the largest alert amount?", ALERTS)
+    assert "AL3" in answer_from_table("Which alert has the smallest amount?", ALERTS)
+    multi = answer_from_table("Which accounts have more than one alert?", ALERTS)
+    assert "A1 (2)" in multi and "A2" not in multi
+    assert "4 alerts" in answer_from_table("How many alerts are there?", ALERTS)
+    assert answer_from_table("When must an STR be filed?", ALERTS) is None
+
+
+def test_ask_answers_aggregates_from_the_table_and_flags_the_rest(tmp_path, monkeypatch):
+    from labagent.packs.aml.rag.tools import AmlLab as Lab
+    lab = Lab.__new__(Lab)
+    lab.tables = {"alerts": ALERTS}
+
+    class C:
+        def retrieve(self, q, k, where=None):
+            return []
+
+        def query(self, q, top_k=5, where=None):
+            from labagent.ai.rag.models import Metrics, RAGResponse
+            return RAGResponse(answer="model text", chunks=[], metrics=Metrics())
+    lab.client = C()
+    assert "AL2" in lab.ask("Which alert has the largest amount?").answer
+    flagged = lab.ask("What is the average review time for each team?").answer
+    assert flagged.startswith("model text") and "Not a full check" in flagged
+    assert lab.ask("When must a report be filed?").answer == "model text"
+
+
+def test_a_failed_provider_is_named_in_the_answer_not_reported_as_no_key():
+    import urllib.error
+    from labagent.ai.rag.config import RAGSettings
+    from labagent.ai.rag.llm import LLMGateway
+
+    def limited(url, headers, body, timeout):
+        raise urllib.error.HTTPError(url, 429, "Too Many", {}, None)
+    r = LLMGateway(RAGSettings(groq_api_key="k", llm_provider=None, ollama_url="http://127.0.0.1:9/v1"), transport=limited).complete("q", "ctx")
+    assert r.provider == "mock" and "rate limit" in r.text and "no LLM provider is configured" not in r.text
+    none = LLMGateway(RAGSettings(llm_provider="mock")).complete("q", "ctx")
+    assert "no LLM provider is configured" in none.text
+
+
+def test_open_client_reads_the_lab_dotenv(tmp_path, monkeypatch):
+    import os
+    from labagent.ai.rag.config import load_dotenv
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    (tmp_path / ".env").write_text("GROQ_API_KEY=abc\n")
+    load_dotenv(tmp_path / ".env")
+    assert os.environ["GROQ_API_KEY"] == "abc"
+    monkeypatch.delenv("GROQ_API_KEY")
