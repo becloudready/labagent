@@ -59,6 +59,8 @@ class LLMGateway:
         for provider in self._candidates():
             try:
                 res = self._call(provider, user, question, context)
+                if provider == "mock":
+                    self._explain_mock(res, warnings)
                 res.warnings = warnings
                 return res
             except _Unavailable as e:
@@ -70,12 +72,23 @@ class LLMGateway:
                 warnings.append(f"{provider} failed ({type(e).__name__}); trying the next provider")
         raise RuntimeError("unreachable: mock never fails")
 
+    def _explain_mock(self, res: LLMResult, warnings: List[str]) -> None:
+        """A provider with a key that failed must not look like "no key": put its error in the answer text (issue #38)."""
+        failed = [w for w in warnings if w.split(" ", 1)[0] in ("groq", "openai", "anthropic") and " failed" in w]
+        if not failed:
+            return
+        passage = res.text.split("Most relevant passage:\n", 1)[-1].split("\n\nFix:", 1)[0]
+        res.text = ("[mock answer: the configured LLM provider failed, so this is NOT a model answer] "
+                    + "; ".join(failed) + "\n\nMost relevant passage:\n" + passage
+                    + "\n\nFix: see the error above. A rate limit clears after a short wait; slow down the loop or retry.")
+        res.completion_tokens = _est(res.text)
+
     def _call(self, provider: str, user: str, question: str, context: str) -> LLMResult:
         s = self.s
         if provider == "mock":
             first = context.split("\n\n")[0] if context else "no context retrieved"
             text = ("[mock answer: no LLM provider is configured] Most relevant passage:\n" + first
-                    + "\n\nFix: set GROQ_API_KEY (free tier at console.groq.com) or run `ollama serve`.")
+                    + "\n\nFix: set GROQ_API_KEY in the environment or in the .env file in the lab folder (free tier at console.groq.com), or run `ollama serve`.")
             return LLMResult(text=text, provider="mock", model="none", prompt_tokens=_est(user), completion_tokens=_est(text), estimated=True)
         if provider == "anthropic":
             if not s.anthropic_api_key:

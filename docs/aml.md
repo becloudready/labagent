@@ -50,7 +50,7 @@ Learners do three tasks: ask policy questions and read the citations, pull the *
 | 4 | `04_triage_and_evaluation` | a scorer, a rule that decides, a strict parser for a model's decision, an error analysis by pattern | the answer key and a majority-label baseline |
 
 They use the same stub, check and solution format as the [RAG lab](rag-local.md), and start from working copies of the earlier exercises. Learners
-need the RAG lab's `pip install -e '.[rag-local]'` and `jupyterlab`. Instructor notes: [aml-lab-instructor.md](aml-lab-instructor.md).
+need the RAG lab's `pip install -e '.[rag-local]'` and `jupyterlab ipywidgets`. Instructor notes: [aml-lab-instructor.md](aml-lab-instructor.md).
 `destroy` removes the notebooks unless the learner has edited them: an edited notebook is their work and stays.
 
 ### Quality checks

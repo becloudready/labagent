@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Union
 from ..corpus.documents import CaseIndex
 from ..schema import TABLES, read_csv
 from . import quality as Q
+from .aggregate import CAVEAT, answer_from_table, needs_full_table
 from .bundle import client_retriever, evidence_bundle, render
 
 CONFIG = "config.json"
@@ -25,7 +26,8 @@ CHUNKS = "corpus/chunks.jsonl"
 def open_client(out_dir: Path, settings_update: Optional[Dict[str, Any]] = None):
     """Open the lab's index. If the index is empty (a fresh checkout, or a memory store), rebuild it from corpus/chunks.jsonl."""
     from ....ai.rag import RAGLabClient
-    from ....ai.rag.config import RAGSettings
+    from ....ai.rag.config import RAGSettings, load_dotenv
+    load_dotenv(out_dir / ".env")        # GROQ_API_KEY etc. from the lab folder, so a notebook needs no setup step (issue #39)
     cfg = json.loads((out_dir / CONFIG).read_text(encoding="utf-8"))
     s = RAGSettings.from_env().model_copy(update={"chroma_path": str(out_dir / "index"), "collection": "aml_lab",
                                                   **({"embedding_model_name": "hashing"} if cfg.get("embedder") == "hashing" else {}),
@@ -53,8 +55,21 @@ class AmlLab:
         return list(self.tables["alerts"])
 
     def ask(self, question: str, top_k: int = 5, **filters: Any):
-        """Ask the corpus. Filters narrow the search, for example doc_type='policy' or jurisdiction='ca'."""
-        return self.client.query(question, top_k=top_k, where=filters or None)
+        """Ask the corpus. Filters narrow the search, for example doc_type='policy' or jurisdiction='ca'.
+
+        Questions about a whole table (largest, how many, more than one) are computed from every row of the alerts table, not from
+        the retrieved chunks. Any other such question gets a note that the answer rests on the retrieved records only.
+        """
+        if needs_full_table(question):
+            exact = answer_from_table(question, self.tables["alerts"])
+            if exact:
+                from ....ai.rag.models import Metrics, RAGResponse
+                return RAGResponse(answer=exact, chunks=self.client.retrieve(question, top_k, filters or None),
+                                   metrics=Metrics(provider="table", model="computed"))
+        res = self.client.query(question, top_k=top_k, where=filters or None)
+        if needs_full_table(question):
+            res.answer += CAVEAT.format(k=len(res.chunks))
+        return res
 
     def evidence(self, alert_id: str) -> Dict[str, Any]:
         return evidence_bundle(self.tables, alert_id, client_retriever(self.client), self.config["jurisdiction"], self._ix,

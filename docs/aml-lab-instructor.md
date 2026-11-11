@@ -6,7 +6,7 @@ tool are described in [aml.md](aml.md).
 
 **Audience:** developers who have done the [RAG lab](rag-local.md) (at least notebooks 1 to 6) and want to apply it to a regulated
 domain. **Not for:** AML investigators who need to learn to *use* an AI assistant (use `mode=copilot`).
-**Prerequisites:** Python functions, the RAG lab's `TinyStore` idea, `pip install -e '.[rag-local]'` and `jupyterlab`. No AML knowledge:
+**Prerequisites:** Python functions, the RAG lab's `TinyStore` idea, `pip install -e '.[rag-local]'` and `jupyterlab ipywidgets`. No AML knowledge:
 the policy text in the lab explains each rule, and the first notebook has learners read it.
 
 ## The design: demo first, then build

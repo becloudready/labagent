@@ -14,7 +14,7 @@ git clone https://github.com/becloudready/labagent && cd labagent
 python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
 python -m pip install --upgrade pip                    # the pip that ships with macOS Python 3.9 cannot install this package in editable mode
 pip install -e '.[rag-local]'                          # Chroma, sentence-transformers (PyTorch), Streamlit, Pydantic, pypdf
-pip install jupyterlab                                 # or open the notebooks in VS Code and choose the .venv kernel
+pip install jupyterlab ipywidgets                     # ipywidgets silences the red "IProgress not found" warning; or open the notebooks in VS Code and choose the .venv kernel
 labagent rag init --dir rag-lab                        # creates the lab folder
 cd rag-lab && jupyter lab
 ```
@@ -108,3 +108,8 @@ Subclass `BaseVectorAdapter` (`upsert`, `query`, `get_doc`, `reset`, `count`) in
 - Token counts are estimated (length / 4) when a provider returns no usage. `metrics.tokens_estimated` tells you which.
 - PDFs are read when `pypdf` is installed (the `rag-local` extra includes it). Without it, and for Office files and other types, the file is skipped and listed in `result.skipped`.
 - The `.env` file never overrides a variable that is already set in your shell.
+
+## Warnings in the notebooks that are harmless
+
+- `TqdmWarning: IProgress not found`: install `ipywidgets` (`pip install ipywidgets`) and restart the kernel. Nothing was wrong; only the progress bar was plain text.
+- `Please set a HF_TOKEN ...` from the Hugging Face Hub: optional. The embedding model downloads without a token; a token only raises the download rate limit.
