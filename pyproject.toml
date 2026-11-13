@@ -63,6 +63,7 @@ labagent = [
   "terraform/*/tests/*.tftest.hcl",
   "packs/*/sources/*.json",
   "packs/aml/data/*.json",
+  "packs/gpu_notebooks/*.sh",
   "packs/*/app/*",
   "packs/*/app/static/*",
   "packs/*/tutorial/notebooks/*.py",

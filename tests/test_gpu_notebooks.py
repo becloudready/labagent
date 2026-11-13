@@ -1,14 +1,20 @@
 """gpu-notebooks: the provider layer and the host lifecycle, against a fake Shadeform API (no network, no key, no cost)."""
+import csv
+import fnmatch
 import json
 import os
+import re
+import subprocess
 import urllib.error
+from pathlib import Path
 
 import pytest
 
 from labagent.packs import registry
 from labagent.packs.base import load_state, run_pack
 from labagent.packs.gpu_notebooks import providers
-from labagent.packs.gpu_notebooks.pack import GpuNotebooks, host_name, host_tag
+from labagent.packs.gpu_notebooks.pack import GpuNotebooks, credentials_path, default_hostname, host_name, host_tag, login_path
+from tests.test_packaging import patterns
 from labagent.packs.gpu_notebooks.providers import ApiError, HostSpec, ShadeformProvider, read_secret
 
 KEY = "sf-test-key-0123456789"
@@ -81,13 +87,51 @@ def launch_params(**kw):
     return {"vendor": "massedcompute", "region": "desmoines-usa-1", "os": "ubuntu22.04_cuda13.0_shade_os", "ssh_key_id": "key-1", **kw}
 
 
-def svc(api, **extra):
-    prov = ShadeformProvider(http=api)
-    return {"provider": lambda pid: prov, "sleep": lambda s: None, **extra}
+class FakeSsh:
+    """Stands in for the VM: answers the few commands the pack sends, and remembers every command and its stdin."""
+
+    def __init__(self, down_for=0, slices=7, anon=403, gpu="1 NVIDIA H100 PCIe MIG 1g.10gb 9984", fail=None):
+        self.calls, self.csv, self.down_for, self.slices, self.anon, self.gpu, self.fail = [], None, down_for, slices, anon, gpu, fail
+        self.args = None
+
+    def __call__(self, host, user, port, key_file, known_hosts):
+        self.args = (host, user, port, key_file, known_hosts)
+        return self
+
+    def run(self, command, stdin=None, timeout=900):
+        self.calls.append((command, stdin))
+        if command == "true":
+            if self.down_for > 0:
+                self.down_for -= 1
+                return 255, "", "ssh: connect to host: Connection refused"
+            return 0, "", ""
+        if self.fail and command.endswith(self.fail):
+            return 1, "", "ERROR: cannot pull the image\n"
+        if command == "echo $HOME":
+            return 0, "/home/shadeform\n", ""
+        if "credentials.csv" in command and stdin:
+            self.csv = stdin
+        if command.endswith("start-labs.sh access"):
+            self.password = (stdin or "").rstrip("\n")
+            return 0, "HOSTNAME=x\nLOGIN_USER=x\nPROMPT=set\n", ""
+        if command.endswith("start-labs.sh partition"):
+            return 0, f"SLICES={self.slices}\nPROFILE=1g.10gb\nGPU_NAME=NVIDIA H100 PCIe\nGPU_COUNT=1\n", ""
+        if command.endswith("start-labs.sh verify"):
+            rows = [l.split(",") for l in (self.csv or "").splitlines()[1:]]
+            return 0, "".join(f"LAB {r[0]} up=200 anon={self.anon} token=200 | {self.gpu}\n" for r in rows), ""
+        return 0, "", ""
+
+    def commands(self):
+        return [c for c, _ in self.calls]
 
 
-def run(action, api, name="t", params=None, **extra):
-    return run_pack(GpuNotebooks(), action, name, params if params is not None else launch_params(), services=svc(api, **extra))
+def svc(api, ssh=None, public=200, **extra):
+    prov = ShadeformProvider(http=api) if api is not None else None
+    return {"provider": lambda pid: prov, "sleep": lambda s: None, "ssh": ssh or FakeSsh(), "http_get": lambda url, verify: public, **extra}
+
+
+def run(action, api, name="t", params=None, log=None, **extra):
+    return run_pack(GpuNotebooks(), action, name, params if params is not None else launch_params(), services=svc(api, **extra), log=log)
 
 
 # ---- registration and dry run ----
@@ -99,7 +143,7 @@ def test_registered_and_dry_run_touches_no_provider(home):
     def boom(_):
         raise AssertionError("dry run must not build a provider or need a key")
     env = run_pack(GpuNotebooks(), "launch", "t", launch_params(), dry_run=True, services={"provider": boom})
-    assert [i["step"] for i in env.items] == ["preflight", "host"] and env.status == "ok"
+    assert [i["step"] for i in env.items] == ["preflight", "host", "setup", "access", "labs", "verify", "report"] and env.status == "ok"
 
 
 def test_unknown_provider_and_bad_hours_are_plain_errors(home):
@@ -252,14 +296,232 @@ def test_the_key_never_reaches_state_envelope_or_errors(home, monkeypatch):
         return call
     monkeypatch.setenv("SHADEFORM_API_KEY", KEY)
     monkeypatch.setattr(providers, "make_http", spying_http)
-    env = run_pack(GpuNotebooks(), "launch", "t", launch_params(), services={"provider": providers.make, "sleep": lambda s: None})
+    ssh = FakeSsh()
+    env = run_pack(GpuNotebooks(), "launch", "t", launch_params(), services={**svc(None, ssh=ssh), "provider": providers.make})
     assert env.status == "ok", env.to_dict()
-    blob = json.dumps(env.to_dict()) + json.dumps(load_state("gpu-notebooks", "t")) + "".join(seen)
+    blob = json.dumps(env.to_dict()) + json.dumps(load_state("gpu-notebooks", "t")) + "".join(seen) + "".join(ssh.commands())
     assert KEY not in blob
 
 
 def test_auth_rejection_names_the_fix_not_the_key(home):
     def deny(m, p, b=None):
         raise ApiError(401, "unauthorized")
-    env = run_pack(GpuNotebooks(), "launch", "t", launch_params(), services={"provider": lambda pid: ShadeformProvider(http=deny)})
+    env = run_pack(GpuNotebooks(), "launch", "t", launch_params(), services={**svc(None), "provider": lambda pid: ShadeformProvider(http=deny)})
     assert env.status == "failed" and "rejected the API key" in json.dumps(env.to_dict())
+
+
+# ---- the labs: MIG slices, one container each, URLs and logins ----
+
+def tokens_in(ssh):
+    return [l.split(",")[2] for l in ssh.csv.splitlines()[1:]]
+
+
+def test_launch_ends_with_one_url_and_login_per_lab(home):
+    ssh, logs = FakeSsh(), []
+    env = run("launch", FakeShadeform(), ssh=ssh, log=logs.append)
+    assert env.status == "ok", env.to_dict()
+    cmds = ssh.commands()
+    order = [next(i for i, c in enumerate(cmds) if key in c) for key in ("labs.env", "tee /opt/labagent/start-labs.sh", "start-labs.sh partition",
+                                                                         "start-labs.sh access", "credentials.csv", "start-labs.sh labs", "start-labs.sh proxy",
+                                                                         "start-labs.sh install_service", "start-labs.sh verify")]
+    assert order == sorted(order)
+    rows = list(csv.DictReader(open(credentials_path("t"), encoding="utf-8")))
+    assert [r["lab"] for r in rows] == [f"lab-{i:02d}" for i in range(1, 8)]
+    assert rows[0]["login_url"] == f"https://203-0-113-7.sslip.io/lab-01/lab?token={rows[0]['token']}"
+    report = "\n".join(logs)
+    for r in rows:
+        assert r["login_url"] in report                                   # the terminal shows every URL with its login
+    assert oct(credentials_path("t").stat().st_mode & 0o777) == "0o600"
+    assert "lab-01,8801," in ssh.csv and "lab-07,8807," in ssh.csv         # one port per lab, bound to the VM's localhost by the script
+    out = env.summary["outputs"]
+    assert out["labs"]["lab-03"]["url"] == "https://203-0-113-7.sslip.io/lab-03/lab" and out["public_ok"] is True
+    assert not any(r["token"] in json.dumps(env.to_dict()) + json.dumps(load_state("gpu-notebooks", "t")) for r in rows)   # envelope and state: no logins
+
+
+def test_tokens_travel_on_stdin_never_on_a_command_line(home):
+    ssh = FakeSsh()
+    run("launch", FakeShadeform(), ssh=ssh)
+    for tok in tokens_in(ssh):
+        assert not any(tok in c for c in ssh.commands())
+    assert all(len(t) == 32 for t in tokens_in(ssh)) and len(set(tokens_in(ssh))) == 7
+
+
+def test_settings_file_carries_the_choices(home):
+    ssh = FakeSsh()
+    run("launch", FakeShadeform(), ssh=ssh, params=launch_params(profile="2g.20gb", tls="internal", image="example/lab:1", domain="example.com"))
+    env_file = next(stdin for c, stdin in ssh.calls if "labs.env" in c)
+    assert "PROFILE='2g.20gb'" in env_file and "TLS='internal'" in env_file and "IMAGE='example/lab:1'" in env_file
+    assert "DOMAIN='example.com'" in env_file and "LABS_DIR='/home/shadeform/labs'" in env_file
+
+
+def test_labs_param_limits_the_count_and_ssh_uses_the_key_file(home):
+    ssh = FakeSsh()
+    env = run("launch", FakeShadeform(), ssh=ssh, params=launch_params(labs=3, ssh_key_file="/keys/id"))
+    assert env.status == "ok" and len(ssh.csv.splitlines()) == 4
+    assert ssh.args[0] == "203.0.113.7" and ssh.args[1] == "shadeform" and ssh.args[3] == "/keys/id" and ssh.args[4].endswith(".known_hosts")
+
+
+def test_rerun_keeps_the_same_logins_so_learners_stay_logged_in(home):
+    first, second = FakeSsh(), FakeSsh()
+    api = FakeShadeform()
+    run("launch", api, ssh=first)
+    run("launch", api, ssh=second)
+    assert tokens_in(first) == tokens_in(second) and len(api.creates()) == 1
+
+
+def test_ssh_that_comes_up_late_is_waited_for_and_one_that_never_does_is_explained(home):
+    late = FakeSsh(down_for=3)
+    assert run("launch", FakeShadeform(), ssh=late).status == "ok"
+    ticks = iter(range(0, 10 ** 6, 100))
+    env = run("launch", FakeShadeform(), name="u", ssh=FakeSsh(down_for=10 ** 6), clock=lambda: next(ticks))
+    assert env.status == "failed" and "ssh_key_file" in json.dumps(env.to_dict())
+
+
+def test_a_remote_failure_shows_the_scripts_own_message_without_any_token(home):
+    ssh = FakeSsh(fail="start-labs.sh labs")
+    env = run("launch", FakeShadeform(), ssh=ssh)
+    text = json.dumps(env.to_dict())
+    assert env.status == "failed" and "cannot pull the image" in text and "starting the lab containers" in text
+    assert not any(t in text for t in tokens_in(ssh))
+
+
+@pytest.mark.parametrize("kw,why", [({"anon": 200}, "WITHOUT its token"), ({"gpu": "2 NVIDIA H100 PCIe 81559"}, "exactly one GPU slice")])
+def test_a_lab_that_is_open_or_sees_more_than_its_slice_fails_the_launch(home, kw, why):
+    env = run("launch", FakeShadeform(), ssh=FakeSsh(**kw))
+    assert env.status == "failed" and why in json.dumps(env.to_dict())
+
+
+def test_labs_not_reachable_from_the_internet_are_a_warning_with_a_tunnel(home):
+    logs, ticks = [], iter(range(0, 10 ** 6, 100))
+    env = run("launch", FakeShadeform(), public=None, log=logs.append, clock=lambda: next(ticks))
+    assert env.status == "ok" and env.summary["outputs"]["public_ok"] is False
+    text = "\n".join(logs)
+    assert "not reachable from here" in text and "ssh -N -L 8801:localhost:8801" in text and "-L 8807:localhost:8807" in text
+
+
+def test_no_slices_is_a_plain_failure(home):
+    env = run("launch", FakeShadeform(), ssh=FakeSsh(slices=0))
+    assert env.status == "failed" and "no MIG slices" in json.dumps(env.to_dict())
+
+
+@pytest.mark.parametrize("bad", [{"profile": "1g.10gb; rm -rf /"}, {"image": "x y"}, {"tls": "yes"}, {"labs": 100}, {"labs": "many"}, {"domain": "a b"}])
+def test_lab_settings_are_validated_before_anything_is_created(home, bad):
+    api = FakeShadeform()
+    env = run("launch", api, params=launch_params(**bad))
+    assert env.status == "failed" and api.creates() == []
+
+
+def test_destroy_also_removes_the_local_logins(home):
+    api = FakeShadeform()
+    run("launch", api)
+    assert credentials_path("t").exists()
+    assert run("destroy", api).status == "ok" and not credentials_path("t").exists()
+
+
+# ---- the installer script that runs on the VM ----
+
+SETUP = Path(providers.__file__).with_name("setup.sh")
+
+
+def test_installer_script_is_valid_bash_and_shipped_in_the_wheel():
+    assert subprocess.run(["bash", "-n", str(SETUP)], capture_output=True).returncode == 0
+    assert any(fnmatch.fnmatch("packs/gpu_notebooks/setup.sh", pat) for pat in patterns())
+
+
+def test_installer_script_never_prints_a_token_or_puts_one_in_a_command_line():
+    text = SETUP.read_text()
+    assert not re.search(r"echo[^\n]*\$\{?token", text)
+    assert "-e JUPYTER_TOKEN \\" in text and 'JUPYTER_TOKEN="$token" docker run' in text     # value comes from the environment, not argv
+    assert "--security-opt no-new-privileges" in text and "127.0.0.1:$port:8888" in text    # not exposed except through the proxy
+
+
+# ---- host name and the shared login ----
+
+def test_host_name_comes_from_the_launch_name_unless_given():
+    assert default_hostname("Nvidia H100_Hackathon Nov") == "nvidia-h100-hackathon-nov" and default_hostname("***") == "gpu-labs"
+    assert len(default_hostname("a" * 90)) <= 63
+
+
+def settings(ssh):
+    return next(stdin for c, stdin in ssh.calls if "labs.env" in c)
+
+
+def test_the_vm_gets_the_launch_name_as_host_name_and_a_shared_login(home):
+    ssh, logs = FakeSsh(), []
+    env = run("launch", FakeShadeform(), name="nvidia-h100-hackathon", ssh=ssh, log=logs.append, params=launch_params(domain="example.com"))
+    assert env.status == "ok", env.to_dict()
+    assert "LAB_HOSTNAME='nvidia-h100-hackathon'" in settings(ssh) and "LOGIN_USER='labagent'" in settings(ssh) and "LOGIN_SUDO='yes'" in settings(ssh)
+    row = next(csv.DictReader(open(login_path("nvidia-h100-hackathon"), encoding="utf-8")))
+    assert row["user"] == "labagent" and len(row["password"]) == 20 and row["password"] == ssh.password
+    assert oct(login_path("nvidia-h100-hackathon").stat().st_mode & 0o777) == "0o600"
+    assert f"ssh labagent@example.com   password: {row['password']}" in "\n".join(logs)
+    assert "that is root" in "\n".join(logs)
+    blob = json.dumps(env.to_dict()) + json.dumps(load_state("gpu-notebooks", "nvidia-h100-hackathon")) + "".join(ssh.commands())
+    assert row["password"] not in blob                                    # stdin only: not in a command, the envelope or the state
+    assert env.summary["outputs"]["hostname"] == "nvidia-h100-hackathon" and env.summary["outputs"]["login_user"] == "labagent"
+
+
+def test_explicit_host_name_login_user_and_no_sudo(home):
+    ssh = FakeSsh()
+    run("launch", FakeShadeform(), ssh=ssh, params=launch_params(hostname="paris-mig-workshop", login_user="student", login_sudo=False))
+    assert "LAB_HOSTNAME='paris-mig-workshop'" in settings(ssh) and "LOGIN_USER='student'" in settings(ssh) and "LOGIN_SUDO='no'" in settings(ssh)
+
+
+def test_the_shared_password_survives_a_rerun(home):
+    a, b = FakeSsh(), FakeSsh()
+    api = FakeShadeform()
+    run("launch", api, ssh=a)
+    run("launch", api, ssh=b)
+    assert a.password == b.password
+
+
+def test_no_login_user_still_sets_the_host_name(home):
+    ssh = FakeSsh()
+    env = run("launch", FakeShadeform(), ssh=ssh, params=launch_params(login_user=""))
+    assert env.status == "ok" and "LOGIN_USER=''" in settings(ssh) and not login_path("t").exists()
+
+
+@pytest.mark.parametrize("bad", [{"hostname": "Bad_Name"}, {"hostname": "-x"}, {"login_user": "root"}, {"login_user": "shadeform"}, {"login_user": "A b"}])
+def test_host_name_and_user_are_validated_before_anything_is_created(home, bad):
+    api = FakeShadeform()
+    assert run("launch", api, params=launch_params(**bad)).status == "failed" and api.creates() == []
+
+
+def test_destroy_removes_the_shared_login_file_too(home):
+    api = FakeShadeform()
+    run("launch", api)
+    assert login_path("t").exists()
+    run("destroy", api)
+    assert not login_path("t").exists()
+
+
+def test_access_script_keeps_the_password_off_command_lines_and_sets_the_host_name_for_good():
+    text = SETUP.read_text()
+    assert 'IFS= read -r pw' in text and not re.search(r"echo[^\n]*\$pw[^\n]*\n?", text.replace('echo "$LOGIN_USER:$pw" | chpasswd', ""))
+    assert "preserve_hostname: true" in text and "hostnamectl set-hostname" in text
+    assert "sshd -t" in text and "Match User" in text                       # password login for that one user only, and the config is validated first
+
+
+def test_access_script_sets_a_user_and_host_prompt_for_login_and_interactive_shells():
+    text = SETUP.read_text()
+    assert r"PS1='\[\e[1;32m\]\u@\h" in text                                  # user@host, coloured
+    assert "$home/.bash_profile" in text and '. "$HOME/.bashrc"' in text         # login shells load it too
+    assert "# >>> labagent prompt >>>" in text and "# <<< labagent prompt <<<" in text and "sed -i '/# >>> labagent prompt >>>/" in text   # replaced, never duplicated
+
+
+def test_a_vm_that_does_not_confirm_the_prompt_fails_the_step(home):
+    ssh = FakeSsh()
+    plain = ssh.run
+
+    def no_prompt(command, stdin=None, timeout=900):
+        return (0, "HOSTNAME=x\n", "") if command.endswith("start-labs.sh access") else plain(command, stdin, timeout)
+    ssh.run = no_prompt
+    env = run("launch", FakeShadeform(), ssh=ssh)
+    assert env.status == "failed" and "did not confirm the shell prompt" in json.dumps(env.to_dict())
+
+
+def test_access_script_repairs_an_account_made_by_hand():
+    text = SETUP.read_text()
+    assert 'usermod -s /bin/bash "$LOGIN_USER"' in text                      # an existing user with /bin/sh
+    assert 'install -d -m 755 -o "$LOGIN_USER"' in text and "/etc/skel/$f" in text   # a home that is missing or owned by root
+    assert "runuser -u" in text and "PROMPT=set" in text                    # the prompt is proven by a real login shell, not assumed
