@@ -25,6 +25,8 @@ Leave `cloud` and `region` out and the launch stops with the five cheapest avail
 
 **Adding a cloud.** Subclass `Provider` in `labagent/packs/gpu_notebooks/providers.py` (validate, find, create, get, delete) and add it to `PROVIDERS`.
 
-**How far to trust it.** The Shadeform calls follow its API docs and were checked against the live price list (read only). Creating and deleting a real VM has not been run yet.
+**Verified on a real VM (2026-11-13).** One H100 PCIe on Scaleway through Shadeform (`ubuntu24.04_cuda13.0_shade_os`, driver 580, Docker and the NVIDIA container toolkit preinstalled, passwordless sudo): `launch` and `destroy` worked. Inside the VM, `nvidia-smi -mig 1` worked with no reset, `1g.10gb` x 7 gave seven devices of 9.75 GiB and 14 SMs, and seven PyTorch containers, one per `NVIDIA_VISIBLE_DEVICES=MIG-<uuid>`, ran a matmul at the same time. Each saw one GPU and all took about the same time (1.96 s), so the slices do not slow each other. Tearing MIG down (`mig -dci`, `mig -dgi`, `-mig 0`) also worked.
+
+**Not verified yet.** MIG after a reboot (NVIDIA says Hopper does not keep it), the 8-GPU SXM shape, other clouds, and Jupyter itself. Shadeform capacity changes within minutes: a `launch` that passed the preflight earlier can be refused later, and nothing is created when it is.
 
 **MIG limit.** An H100 splits into at most 7 slices (`1g.10gb`), so an 8-GPU box gives 56 labs, not 64.
