@@ -78,7 +78,7 @@ def home(tmp_path, monkeypatch):
 
 
 def launch_params(**kw):
-    return {"cloud": "massedcompute", "region": "desmoines-usa-1", "os": "ubuntu22.04_cuda13.0_shade_os", "ssh_key_id": "key-1", **kw}
+    return {"vendor": "massedcompute", "region": "desmoines-usa-1", "os": "ubuntu22.04_cuda13.0_shade_os", "ssh_key_id": "key-1", **kw}
 
 
 def svc(api, **extra):
@@ -103,8 +103,8 @@ def test_registered_and_dry_run_touches_no_provider(home):
 
 
 def test_unknown_provider_and_bad_hours_are_plain_errors(home):
-    env = run_pack(GpuNotebooks(), "launch", "t", launch_params(provider="nope"), services={"provider": providers.make})
-    assert env.status == "failed" and "unknown provider 'nope'" in json.dumps(env.to_dict())
+    env = run_pack(GpuNotebooks(), "launch", "t", launch_params(cloud="nope"), services={"provider": providers.make})
+    assert env.status == "failed" and "unknown cloud 'nope'" in json.dumps(env.to_dict())
     env = run("launch", FakeShadeform(), params=launch_params(hours=100))
     assert env.status == "failed" and "between 1 and 72" in json.dumps(env.to_dict())
 
@@ -143,15 +143,15 @@ def test_missing_key_is_a_clear_error(home):
 
 def test_validate_returns_price_and_lists_options_when_unavailable(home):
     p = ShadeformProvider(http=FakeShadeform())
-    spec = HostSpec(name="x", instance_type="H100", cloud="massedcompute", region="desmoines-usa-1", os_image="ubuntu22.04_cuda13.0_shade_os")
+    spec = HostSpec(name="x", instance_type="H100", vendor="massedcompute", region="desmoines-usa-1", os_image="ubuntu22.04_cuda13.0_shade_os")
     assert p.validate(spec)["hourly_cents"] == 273
     with pytest.raises(Exception) as e:
-        p.validate(HostSpec(name="x", instance_type="H100", cloud="massedcompute", region="nowhere"))
-    assert "othercloud region=eu-1 $1.99/h" in str(e.value)               # cheapest first, so the user can pick
-    with pytest.raises(Exception, match="set cloud and region"):
+        p.validate(HostSpec(name="x", instance_type="H100", vendor="massedcompute", region="nowhere"))
+    assert "vendor=othercloud region=eu-1 $1.99/h" in str(e.value)               # cheapest first, so the user can pick
+    with pytest.raises(Exception, match="set vendor and region"):
         p.validate(HostSpec(name="x", instance_type="H100"))
     with pytest.raises(Exception, match="not offered"):
-        p.validate(HostSpec(name="x", instance_type="H100", cloud="massedcompute", region="desmoines-usa-1", os_image="windows"))
+        p.validate(HostSpec(name="x", instance_type="H100", vendor="massedcompute", region="desmoines-usa-1", os_image="windows"))
 
 
 # ---- launch and destroy ----
@@ -171,7 +171,7 @@ def test_create_request_matches_the_documented_call(home):
 
 def test_optional_fields_are_left_out_not_sent_as_null(home):
     api = FakeShadeform()
-    run("launch", api, params={"cloud": "massedcompute", "region": "desmoines-usa-1"})
+    run("launch", api, params={"vendor": "massedcompute", "region": "desmoines-usa-1"})
     (_, _, body), = api.creates()
     assert "os" not in body and "ssh_key_id" not in body
 

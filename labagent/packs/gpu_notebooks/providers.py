@@ -26,7 +26,7 @@ USER_AGENT = "labagent-gpu-notebooks (+https://github.com/becloudready/labagent)
 class HostSpec:
     name: str                       # provider-side name (letters, digits, - and _)
     instance_type: str              # provider's GPU shape, e.g. H100 or H100x8
-    cloud: Optional[str] = None
+    vendor: Optional[str] = None    # the datacenter company behind the offer (Shadeform calls this field `cloud`)
     region: Optional[str] = None
     os_image: Optional[str] = None
     ssh_key_id: Optional[str] = None
@@ -188,15 +188,15 @@ class ShadeformProvider(Provider):
                 if a.get("available") and a.get("rental_type", "on_demand") == "on_demand":
                     offers.append((int(t.get("hourly_price") or 0), t["cloud"], a["region"], (t.get("configuration") or {}).get("os_options") or []))
         offers.sort()
-        menu = "; ".join(f"cloud={c} region={r} ${p / 100:.2f}/h" for p, c, r, _ in offers[:5]) or "none available right now"
+        menu = "; ".join(f"vendor={c} region={r} ${p / 100:.2f}/h" for p, c, r, _ in offers[:5]) or "none available right now"
 
         def refuse(why: str) -> PackError:
             return PackError(f"{why}. Available {spec.instance_type}: {menu}")
-        if not spec.cloud or not spec.region:
-            raise refuse("set cloud and region")
-        match = [o for o in offers if o[1].lower() == spec.cloud.lower() and o[2] == spec.region]
+        if not spec.vendor or not spec.region:
+            raise refuse("set vendor and region")
+        match = [o for o in offers if o[1].lower() == spec.vendor.lower() and o[2] == spec.region]
         if not match:
-            raise refuse(f"{spec.instance_type} is not available on {spec.cloud} in {spec.region}")
+            raise refuse(f"{spec.instance_type} is not available on {spec.vendor} in {spec.region}")
         price, _, _, oses = match[0]
         if spec.os_image and spec.os_image not in oses:
             raise PackError(f"image '{spec.os_image}' is not offered there. Offered: {', '.join(oses) or 'none listed'}")
@@ -215,7 +215,7 @@ class ShadeformProvider(Provider):
 
     def create(self, spec: HostSpec) -> str:
         due = (datetime.now(timezone.utc) + timedelta(hours=spec.hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        body: Dict[str, Any] = {"cloud": spec.cloud, "name": spec.name, "region": spec.region, "shade_instance_type": spec.instance_type,
+        body: Dict[str, Any] = {"cloud": spec.vendor, "name": spec.name, "region": spec.region, "shade_instance_type": spec.instance_type,
                                 "shade_cloud": spec.shade_cloud, "tags": spec.tags, "auto_delete": {"date_threshold": due}}
         if spec.os_image:
             body["os"] = spec.os_image
@@ -248,5 +248,5 @@ PROVIDERS: Dict[str, Callable[[], Provider]] = {"shadeform": ShadeformProvider}
 
 def make(provider_id: str) -> Provider:
     if provider_id not in PROVIDERS:
-        raise PackError(f"unknown provider '{provider_id}'. Available: {', '.join(sorted(PROVIDERS))}")
+        raise PackError(f"unknown cloud '{provider_id}'. Available: {', '.join(sorted(PROVIDERS))}")
     return PROVIDERS[provider_id]()

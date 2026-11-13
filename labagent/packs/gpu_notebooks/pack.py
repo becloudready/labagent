@@ -43,15 +43,15 @@ class GpuNotebooks(Pack):
     cost_tier = "metered"
     default_name = "gpu"
     params = [
-        Param("provider", "shadeform", f"Where to rent the VM: {', '.join(sorted(providers.PROVIDERS))}"),
+        Param("cloud", "shadeform", f"Whose API to call: {', '.join(sorted(providers.PROVIDERS))}"),
         Param("instance_type", "H100", "The provider's GPU shape, e.g. H100 (one GPU) or H100x8"),
-        Param("cloud", None, "shadeform: the underlying cloud, e.g. massedcompute. Leave out to list what is available"),
-        Param("region", None, "shadeform: region of that cloud, e.g. desmoines-usa-1"),
+        Param("vendor", None, "shadeform: the datacenter company behind the offer, e.g. scaleway. Leave out to list what is available"),
+        Param("region", None, "shadeform: that vendor's region, e.g. paris-france-1"),
         Param("os", None, "VM image from the provider's list, e.g. ubuntu22.04_cuda13.0_shade_os (default: the provider's)"),
         Param("ssh_key_id", None, "shadeform: id of an SSH key already added to your account (default: your account's default key)"),
         Param("hours", 4, "The provider deletes the VM after this many hours (1 to 72), whatever happens to this tool"),
     ]
-    output_keys = ("provider", "host_name", "host_id", "ip", "ssh_user", "ssh_port", "hourly_cents")
+    output_keys = ("cloud", "host_name", "host_id", "ip", "ssh_user", "ssh_port", "hourly_cents")
 
     def services(self, profile):
         return {"provider": _LazyProviders()}
@@ -64,11 +64,11 @@ class GpuNotebooks(Pack):
             raise PackError("hours must be a whole number from 1 to 72")
         if not 1 <= hours <= 72:
             raise PackError("hours must be between 1 and 72")
-        return HostSpec(name=host_name(ctx.name), instance_type=str(p["instance_type"]), cloud=p["cloud"], region=p["region"],
+        return HostSpec(name=host_name(ctx.name), instance_type=str(p["instance_type"]), vendor=p["vendor"], region=p["region"],
                         os_image=p["os"], ssh_key_id=p["ssh_key_id"], hours=hours, tags=["labagent", host_tag(ctx.name)])
 
     def _provider(self, ctx: PackContext):
-        prov = ctx.services["provider"](ctx.params["provider"])
+        prov = ctx.services["provider"](ctx.params["cloud"])
         for w in getattr(prov, "warnings", []):
             ctx.log(f"  warning: {w}")
         return prov
@@ -81,9 +81,9 @@ class GpuNotebooks(Pack):
     def _preflight(self, ctx: PackContext):
         spec = self._spec(ctx)
         info = self._provider(ctx).validate(spec)
-        ctx.log(f"  {ctx.params['provider']}: {spec.instance_type} on {spec.cloud} in {spec.region} at ${info['hourly_cents'] / 100:.2f}/h, "
+        ctx.log(f"  {ctx.params['cloud']}: {spec.instance_type} from {spec.vendor} in {spec.region} at ${info['hourly_cents'] / 100:.2f}/h, "
                 f"deleted by the provider after {spec.hours} h")
-        return {"provider": ctx.params["provider"], "host_name": spec.name, "hourly_cents": info["hourly_cents"]}
+        return {"cloud": ctx.params["cloud"], "host_name": spec.name, "hourly_cents": info["hourly_cents"]}
 
     def _host_ready(self, ctx: PackContext) -> bool:
         hid = ctx.state.get("host_id")
