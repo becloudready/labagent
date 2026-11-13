@@ -34,6 +34,7 @@ Extras: `labagent[rag]` (Databricks RAG), `[rag-local]` (laptop RAG), `[rag-lab]
 | Pack | What it builds | Where |
 |---|---|---|
 | `azure-labs` | Copy Azure VMs, disks and network from one resource group to another with snapshots, or snapshot a dead VM or disk. Source is read-only. An Azure Lab Services alternative. [Guide](docs/azure-labs.md) | Azure (needs `az login`) |
+| `gpu-notebooks` | Rent a GPU VM (Shadeform) as the base for JupyterLab labs on GPU slices. Part 1: the host. [Guide](docs/gpu-notebooks.md) | Shadeform (API key) |
 | `rag-sec-tutorial` | Nine notebooks: RAG on SEC 10-K filings with embeddings, pgvector, hybrid search, citations, an evaluation gate, a deployed app | Databricks Free Edition |
 | `db-agent` | [db-agent](https://github.com/db-agent/db-agent) text-to-SQL app on Databricks Apps, pinned commit. [Which model, warehouse and schema it picks](docs/packs.md) | Databricks Free Edition |
 | `dbx-lakehouse` | Medallion lakehouse (bronze, silver, gold) from real open data, with masks, a row filter, notebooks and exercises. [Guide](docs/dbx-lakehouse.md) | Databricks Free Edition, AWS, Azure |
