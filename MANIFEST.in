@@ -1,12 +1,12 @@
 include LICENSE README.md SECURITY.md CONTRIBUTING.md
 recursive-include docs *.md *.yml *.json
-recursive-include examples *.json
+recursive-include examples *.yaml
 recursive-include scripts *.py
 recursive-include tests *.py
 recursive-include labagent/terraform *.tf *.tftpl *.hcl
 recursive-include labagent/ai/rag/lab *.py *.md
 recursive-include labagent/packs/dbx_lakehouse *.sql *.md
 # never ship operational data or state
-global-exclude *.tfstate *.tfstate.* *.tfvars *.pem job*.json result*.json plan*.json lab.json *.pyc
+global-exclude *.tfstate *.tfstate.* *.tfvars *.pem job*.json job*.yaml job*.yml result*.json plan*.json lab.json lab.yaml lab.yml *.pyc
 prune .venv
 prune build

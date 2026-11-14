@@ -125,7 +125,7 @@ class GpuNotebooks(Pack):
         Param("hours", 4, "The cloud deletes the VM after this many hours (1 to 72), whatever happens to this tool"),
         Param("mode", "mig", "mig: one hardware-isolated MIG slice per lab (H100, H200, A100). "
                              "shared: labs share the whole GPU with no isolation, for GPUs without MIG such as the RTX 5090 (needs labs)"),
-        Param("profile", "auto", "mig only. MIG slice size. auto = the smallest the GPU offers (1g.10gb on H100 and A100 80GB, 1g.5gb on A100 40GB). "
+        Param("mig_profile", "auto", "mig only. MIG slice size. auto = the smallest the GPU offers (1g.10gb on H100 and A100 80GB, 1g.5gb on A100 40GB). "
                                  "Others: 1g.20gb, 2g.20gb, 3g.40gb"),
         Param("labs", 0, "How many labs to start (mig: 0 = one per slice. shared: required, spread over the GPUs). At most 99)"),
         Param("image", "quay.io/jupyter/pytorch-notebook:cuda12-latest", "Docker image for each lab. One container per slice"),
@@ -164,8 +164,8 @@ class GpuNotebooks(Pack):
         p = ctx.params
         if p["mode"] not in ("mig", "shared"):
             raise PackError("mode must be mig or shared")
-        if not re.fullmatch(r"[0-9a-z.+]+", str(p["profile"])):
-            raise PackError("profile must be auto, or look like 1g.10gb")
+        if not re.fullmatch(r"[0-9a-z.+]+", str(p["mig_profile"])):
+            raise PackError("mig_profile must be auto, or look like 1g.10gb")
         if not re.fullmatch(r"[A-Za-z0-9._/:@-]+", str(p["image"])):
             raise PackError("image must be a Docker image name such as quay.io/jupyter/pytorch-notebook:cuda12-latest")
         if p["tls"] not in ("letsencrypt", "internal", "none"):
@@ -336,7 +336,7 @@ class GpuNotebooks(Pack):
         home = self._remote(ctx, runner, "echo $HOME", "reading the home directory").strip()
         domain = p["domain"] or default_domain(ctx.state["ip"])
         hostname = p["hostname"] or default_hostname(ctx.name)
-        env = "".join(f"{k}='{v}'\n" for k, v in (("MODE", p["mode"]), ("PROFILE", p["profile"]), ("IMAGE", p["image"]), ("TLS", p["tls"]), ("DOMAIN", domain),
+        env = "".join(f"{k}='{v}'\n" for k, v in (("MODE", p["mode"]), ("PROFILE", p["mig_profile"]), ("IMAGE", p["image"]), ("TLS", p["tls"]), ("DOMAIN", domain),
                                                    ("LABS_DIR", f"{home}/labs"), ("LAB_HOSTNAME", hostname), ("LOGIN_USER", p["login_user"] or ""),
                                                    ("LOGIN_SUDO", "yes" if flag(p["login_sudo"]) else "no")))
         self._remote(ctx, runner, f"sudo install -d -m 755 {INSTALL_DIR} && sudo tee {INSTALL_DIR}/labs.env >/dev/null", "writing the settings", stdin=env)
@@ -353,7 +353,7 @@ class GpuNotebooks(Pack):
             count = min(slices, wanted or MAX_LABS, MAX_LABS)
             ctx.log(f"  {slices} slices of {facts.get('PROFILE')} on {facts.get('GPU_COUNT', '?')} x {facts.get('GPU_NAME', 'GPU')}: starting {count} labs")
         return {"slices": slices, "lab_count": count, "gpu": facts.get("GPU_NAME", ""), "mode": p["mode"],
-                "profile": facts.get("PROFILE", p["profile"]),
+                "profile": facts.get("PROFILE", p["mig_profile"]),
                 "domain": domain, "remote_home": home, "hostname": hostname}
 
     def _access(self, ctx: PackContext):

@@ -3,6 +3,8 @@
 `labagent run --job job.json --output result.json` is the only entry point CI uses. The orchestrator
 (any system that can issue the job and accept the callback) and `labagent` talk through two JSON documents.
 
+By hand, the job, the `--config` file and the `--ruleset` file may be YAML instead: name them `.yaml` or `.yml`. They read exactly as the same JSON would (a number stays a number, no value is expanded), with three guards: no aliases (`*name`), no repeated keys, and `007` or `0x10` stay text. **Quote** an id that is all digits, such as `"1"` or an AWS account id: unquoted, it is a number. The result is always JSON. `examples/` has a commented file of each kind.
+
 ## Job (orchestrator to labagent)
 
 | Field | Type | Notes |

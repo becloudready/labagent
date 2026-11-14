@@ -14,6 +14,7 @@ from .config import STATE_BACKEND_DIR, load_config
 from .context import Ctx, GuardError
 from .envelope import Envelope
 from .run import COMMANDS, PACK_COMMANDS, run_job, run_pack_job
+from .spec import load_document
 
 
 def _emit(env: Envelope, output: str) -> None:
@@ -82,7 +83,8 @@ def _finish(console, env, pack_id: str, action: str, name: str, dry_run: bool, s
     if env.status != "ok":
         failed = next((i for i in env.items if i.get("state") == "failed"), {})
         text = (env.error or "failed")
-        lines = [s(f"step {failed.get('step', '?')} failed", "red", "bold")] + [s(t, "red") for t in textwrap.wrap(text, max(console.width - 6, 30))]
+        head = f"step {failed['step']} failed" if failed.get("step") else f"{action} stopped before any step ran"
+        lines = [s(head, "red", "bold")] + [s(t, "red") for t in textwrap.wrap(text, max(console.width - 6, 30))]
         lines += ["", s("Run the same command again to resume where it stopped, or remove what was created:", "gray"),
                   s(f"labagent destroy {pack_id} --name {name}", "cyan")]
         console.card("Failed", lines, "red")
@@ -144,13 +146,13 @@ def main(argv=None) -> int:
         return _nl_main(argv)
     p = argparse.ArgumentParser(prog="labagent", description=__doc__)
     p.add_argument("--version", action="version", version=__version__)
-    p.add_argument("--config", help="JSON config file (or LABAGENT_CONFIG)")
+    p.add_argument("--config", help="Config file, JSON or YAML (or LABAGENT_CONFIG)")
     p.add_argument("--profile", help="AWS profile for local use. CI uses OIDC environment credentials.")
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="Execute a job document: the CI entry point")
-    r.add_argument("--job", required=True, help="Path to job JSON (contains roster: keep it out of git and logs)")
+    r.add_argument("--job", required=True, help="Path to the job file, JSON or YAML (contains a roster: keep it out of git and logs)")
     r.add_argument("--output", default="result.json", help="Result envelope path, or - for stdout")
-    r.add_argument("--ruleset", help="Path to a ruleset JSON for audit/cleanup (merged into the job)")
+    r.add_argument("--ruleset", help="Path to a ruleset file, JSON or YAML, for audit/cleanup (merged into the job)")
     pk = sub.add_parser("packs", help="List available lab packs")
     pk.add_argument("--json", action="store_true", help="Machine-readable catalog with parameters, platforms and cost tier (used by the console)")
     from .ai.rag import cli as rag_cli
@@ -206,7 +208,7 @@ def main(argv=None) -> int:
         print("\n".join(sorted(COMMANDS)))
         return 0
     try:
-        job = json.loads(Path(args.job).expanduser().read_text(encoding="utf-8"))
+        job = load_document(args.job, "a job file")
         if job.get("command") in PACK_COMMANDS:       # lab packs bring their own credentials: no AWS account guard here
             env = run_pack_job(job)
             _emit(env, args.output)
@@ -214,7 +216,7 @@ def main(argv=None) -> int:
         cfg = load_config(args.config)
         session = boto3.Session(profile_name=args.profile, region_name=cfg.region)
         if getattr(args, "ruleset", None) and "ruleset" not in job:
-            job["ruleset"] = json.loads(Path(args.ruleset).expanduser().read_text(encoding="utf-8"))
+            job["ruleset"] = load_document(args.ruleset, "a ruleset file")
         env = run_job(Ctx(cfg, session), job)
     except GuardError as e:
         env = Envelope(command="guard").fail(str(e))

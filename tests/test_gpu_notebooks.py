@@ -360,7 +360,7 @@ def test_tokens_travel_on_stdin_never_on_a_command_line(home):
 
 def test_settings_file_carries_the_choices(home):
     ssh = FakeSsh()
-    run("launch", FakeShadeform(), ssh=ssh, params=launch_params(profile="2g.20gb", tls="internal", image="example/lab:1", domain="example.com"))
+    run("launch", FakeShadeform(), ssh=ssh, params=launch_params(mig_profile="2g.20gb", tls="internal", image="example/lab:1", domain="example.com"))
     env_file = next(stdin for c, stdin in ssh.calls if "labs.env" in c)
     assert "PROFILE='2g.20gb'" in env_file and "TLS='internal'" in env_file and "IMAGE='example/lab:1'" in env_file
     assert "DOMAIN='example.com'" in env_file and "LABS_DIR='/home/shadeform/labs'" in env_file
@@ -416,7 +416,7 @@ def test_no_slices_is_a_plain_failure(home):
     assert env.status == "failed" and "no MIG slices" in json.dumps(env.to_dict())
 
 
-@pytest.mark.parametrize("bad", [{"profile": "1g.10gb; rm -rf /"}, {"image": "x y"}, {"tls": "yes"}, {"labs": 100}, {"labs": "many"}, {"domain": "a b"}])
+@pytest.mark.parametrize("bad", [{"mig_profile": "1g.10gb; rm -rf /"}, {"image": "x y"}, {"tls": "yes"}, {"labs": 100}, {"labs": "many"}, {"domain": "a b"}])
 def test_lab_settings_are_validated_before_anything_is_created(home, bad):
     api = FakeShadeform()
     env = run("launch", api, params=launch_params(**bad))

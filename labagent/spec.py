@@ -16,6 +16,7 @@ have given: `hours: 6` is "6", `true` is "true", a list is a comma list. Only `t
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 from pathlib import Path
@@ -33,12 +34,38 @@ class SpecError(ValueError):
 
 
 class _Loader(yaml.SafeLoader):
-    """SafeLoader where only true/false are booleans (YAML 1.1 would also turn yes/no/on/off into booleans)."""
+    """SafeLoader that reads a value the way the command line and JSON would, so a file never silently means something else.
+
+    Only true/false are booleans (YAML 1.1 would also turn yes/no/on/off into booleans). A number is plain decimal: `007`, `0x10`,
+    `1_000` and `1:30` stay text (YAML 1.1 reads them as octal, hex and base 60), and so does a date. Aliases and duplicate keys are
+    refused: an alias can blow a small file up into a huge one, and the second of two equal keys would silently win.
+    """
+
+    def compose_node(self, parent, index):
+        if self.check_event(yaml.events.AliasEvent):
+            raise yaml.constructor.ConstructorError(None, None, "aliases (*name) are not allowed in labagent files", self.peek_event().start_mark)
+        return super().compose_node(parent, index)
+
+    def construct_mapping(self, node, deep=False):
+        seen = set()
+        for key_node, _ in node.value:
+            key = self.construct_object(key_node, deep=True)
+            if isinstance(key, (str, int, float, bool)) and key in seen:
+                raise yaml.constructor.ConstructorError("while reading a mapping", node.start_mark, f"the key {key!r} appears twice", key_node.start_mark)
+            if isinstance(key, (str, int, float, bool)):
+                seen.add(key)
+        return super().construct_mapping(node, deep)
 
 
-_Loader.yaml_implicit_resolvers = {
-    k: [(tag, rx) for tag, rx in v if tag != "tag:yaml.org,2002:bool"] for k, v in yaml.SafeLoader.yaml_implicit_resolvers.items()}
-_Loader.add_implicit_resolver("tag:yaml.org,2002:bool", re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$"), list("tTfF"))
+def _resolvers() -> None:
+    drop = {"tag:yaml.org,2002:bool", "tag:yaml.org,2002:int", "tag:yaml.org,2002:float", "tag:yaml.org,2002:timestamp"}
+    _Loader.yaml_implicit_resolvers = {k: [(tag, rx) for tag, rx in v if tag not in drop] for k, v in yaml.SafeLoader.yaml_implicit_resolvers.items()}
+    _Loader.add_implicit_resolver("tag:yaml.org,2002:bool", re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$"), list("tTfF"))
+    _Loader.add_implicit_resolver("tag:yaml.org,2002:int", re.compile(r"^[-+]?(?:0|[1-9][0-9]*)$"), list("-+0123456789"))
+    _Loader.add_implicit_resolver("tag:yaml.org,2002:float", re.compile(r"^[-+]?(?:[0-9]+\.[0-9]*|\.[0-9]+)(?:[eE][-+]?[0-9]+)?$"), list("-+0123456789."))
+
+
+_resolvers()
 
 
 def _expand(text: str, where: str, env: Dict[str, str]) -> str:
@@ -67,24 +94,55 @@ def _scalar(value: Any, where: str, env: Dict[str, str]) -> Optional[str]:
     raise SpecError(f"{where}: a parameter must be a plain value or a list of plain values, not {type(value).__name__}")
 
 
-def load(path: str, env: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-    """Read a launch file. Returns {"pack": str|None, "name": str|None, "params": {str: str}}."""
-    env = dict(os.environ) if env is None else env
-    p = Path(path).expanduser()
+def _read(path: str, kind: str) -> str:
     try:
-        raw = p.read_bytes()
+        raw = Path(path).expanduser().read_bytes()
     except OSError as e:
         raise SpecError(f"{path}: cannot read the file ({e.strerror or type(e).__name__})")
     if len(raw) > MAX_BYTES:
-        raise SpecError(f"{path}: the file is larger than {MAX_BYTES // 1000} KB, which is not a launch file")
+        raise SpecError(f"{path}: the file is larger than {MAX_BYTES // 1000} KB, which is not {kind}")
     try:
-        doc = yaml.load(raw.decode("utf-8"), Loader=_Loader)       # noqa: S506 (a SafeLoader subclass)
+        return raw.decode("utf-8")
     except UnicodeDecodeError:
         raise SpecError(f"{path}: the file is not UTF-8 text")
+
+
+def _yaml(text: str, path: str) -> Any:
+    try:
+        return yaml.load(text, Loader=_Loader)                   # noqa: S506 (a SafeLoader subclass)
     except yaml.YAMLError as e:
         mark = getattr(e, "problem_mark", None)
         line = f" at line {mark.line + 1}" if mark else ""
         raise SpecError(f"{path}: invalid YAML{line}: {getattr(e, 'problem', None) or 'cannot parse'}")
+
+
+def is_yaml(path: str) -> bool:
+    return str(path).lower().endswith((".yaml", ".yml"))
+
+
+def load_document(path: str, kind: str = "a labagent file") -> Dict[str, Any]:
+    """Read a job, config or ruleset: JSON, or YAML when the file name ends in .yaml or .yml. The top level must be a mapping.
+
+    Unlike a launch file, nothing is expanded and nothing is turned into a string: a number stays a number and `"007"` stays text,
+    exactly as the same document in JSON would read. Write an account id or a learner id that is all digits in quotes.
+    """
+    text = _read(path, kind)
+    if is_yaml(path):
+        doc = _yaml(text, path)
+    else:
+        try:
+            doc = json.loads(text)
+        except ValueError as e:
+            raise SpecError(f"{path}: invalid JSON: {e}")
+    if not isinstance(doc, dict):
+        raise SpecError(f"{path}: the top level must be a mapping (an object), not {'empty' if doc is None else type(doc).__name__}")
+    return doc
+
+
+def load(path: str, env: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """Read a launch file. Returns {"pack": str|None, "name": str|None, "params": {str: str}}."""
+    env = dict(os.environ) if env is None else env
+    doc = _yaml(_read(path, "a launch file"), path)
     if doc is None:
         raise SpecError(f"{path}: the file is empty. It needs at least `pack: <name>`")
     if not isinstance(doc, dict):

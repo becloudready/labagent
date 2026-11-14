@@ -1,11 +1,12 @@
 """Configuration. No organization-specific value is hard-coded in the engine."""
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from .spec import load_document
 
 MODULE_DIR = Path(__file__).parent / "terraform" / "cohort_iam"
 STATE_BACKEND_DIR = Path(__file__).parent / "terraform" / "state_backend"
@@ -59,15 +60,17 @@ class Config:
 
 
 def load_config(path: Optional[str] = None) -> Config:
-    """Load JSON config. Path from argument or LABAGENT_CONFIG; env LABAGENT_ALLOWED_ACCOUNTS overrides the allow-list."""
+    """Load a config file: JSON, or YAML when the name ends in .yaml or .yml. Path from argument or LABAGENT_CONFIG;
+    env LABAGENT_ALLOWED_ACCOUNTS overrides the allow-list."""
     path = path or getenv("CONFIG")
-    raw = {}
-    if path:
-        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    raw = load_document(path, "a config file") if path else {}
     known = {f.name for f in fields(Config)}
     unknown = set(raw) - known
     if unknown:
         raise ValueError(f"unknown config keys: {sorted(unknown)}")
+    ids = raw.get("allowed_account_ids", [])
+    if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
+        raise ValueError("allowed_account_ids must be a list of quoted strings, e.g. [\"123456789012\"]")
     for k in ("protected_name_prefixes", "owner_tag_keys"):
         if k in raw:
             raw[k] = tuple(raw[k])

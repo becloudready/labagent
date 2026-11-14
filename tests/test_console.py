@@ -283,3 +283,13 @@ def test_json_output_is_never_coloured(api, capsys):
     assert "\x1b" not in capsys.readouterr().out
     cli.main(["ssh-keys", "--json", "--color", "always"])
     assert "\x1b" not in capsys.readouterr().out
+
+
+def test_a_failure_before_any_step_ran_does_not_name_a_step():
+    from labagent.envelope import Envelope
+    out = Stream(tty=True)
+    con = Console(out, "always", width=90)
+    cli._finish(con, Envelope(command="launch").fail("unknown parameter(s) for gpu-notebooks: profile"), "gpu-notebooks", "launch", "demo", False, True)
+    text = strip_ansi(out.getvalue())
+    assert "launch stopped before any step ran" in text and "step ?" not in text
+    assert "unknown parameter(s) for gpu-notebooks: profile" in text and "labagent destroy gpu-notebooks --name demo" in text

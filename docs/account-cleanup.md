@@ -31,7 +31,7 @@ without a type are rejected when the ruleset is loaded. A rule with `"enabled": 
 Match keys (all must match; a list means any entry): `type` (`service/type`), `region`, `name` (glob, case-insensitive),
 `id`, `name_regex`, `tags` (`{"Key": "glob"}`), `tags_absent`, `older_than_days`, `unused_days`, `attrs` (exact match on
 discovered attributes such as `enabled`, `attachments`, `aliases`). See `labagent/rules.py` for the full contract and
-`examples/rulesets/legacy-cleanup.example.json` for a starting point.
+`examples/rulesets/legacy-cleanup.example.yaml` for a starting point (JSON works too).
 
 **Keep your real rulesets out of this public repo.** They contain your resource names. Store them in the private runner
 repo (or the orchestrator) and pass them to the job.
@@ -47,7 +47,7 @@ repo (or the orchestrator) and pass them to the job.
 | 5. Repeat | `pending` items (CloudFront, CloudFormation, throttled calls) return a `retry_after_s`. Re-run apply later | yes |
 | 6. Re-audit | step 1 again. Remaining `review` items become new rules, or stay | no |
 
-Locally: `labagent --config lab.json run --job job.json --ruleset rules.json --output result.json`.
+Locally: `labagent --config lab.yaml run --job job.json --ruleset rules.yaml --output result.json` (each file is JSON or YAML).
 In CI: the same job through the private runner workflow (`docs/examples/runner-workflow.example.yml`); the orchestrator
 supplies the ruleset in the job.
 
