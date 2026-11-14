@@ -98,7 +98,7 @@ def _finish(console, env, pack_id: str, action: str, name: str, dry_run: bool, s
         console.line(" " + s("The result as JSON: add --json, or --output FILE.", "gray"))
 
 
-KNOWN = {"run", "packs", "rag", "dataset", "launch", "destroy", "offers", "ssh-keys", "bootstrap-path", "commands"}
+KNOWN = {"run", "packs", "rag", "dataset", "launch", "destroy", "compute", "bootstrap-path", "commands"}
 
 
 def _nl_main(argv) -> int:
@@ -157,8 +157,8 @@ def main(argv=None) -> int:
     pk.add_argument("--json", action="store_true", help="Machine-readable catalog with parameters, platforms and cost tier (used by the console)")
     from .ai.rag import cli as rag_cli
     rag_cli.add_parser(sub)
-    from .packs.gpu_notebooks import offers as offers_cli
-    offers_cli.add_parser(sub)
+    from .compute import cli as compute_cli
+    compute_cli.add_parser(sub)
     dp = sub.add_parser("dataset", help="Package a chunk file or a folder of tables as a versioned, checksummed snapshot (maintainers)")
     dp.add_argument("--chunks", help="JSONL of chunks: one object per line with id, title, content and meta")
     dp.add_argument("--tables", help="Folder of CSV/Parquet files with a provenance.json (for example from python -m labagent.packs.aml.gen)")
@@ -200,8 +200,8 @@ def main(argv=None) -> int:
         return 0
     if args.cmd == "rag":
         return rag_cli.run(args)
-    if args.cmd in ("offers", "ssh-keys"):
-        return offers_cli.run(args)
+    if args.cmd == "compute":
+        return compute_cli.run(args)
     if args.cmd in ("packs", "launch", "destroy"):
         return _packs_main(args)
     if args.cmd == "commands":

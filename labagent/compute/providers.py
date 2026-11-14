@@ -1,8 +1,8 @@
-"""GPU cloud providers for gpu-notebooks. A provider rents and releases one GPU host; the pack does the rest.
+"""Compute clouds. A provider lists what it rents (offers), the SSH keys in the account, and creates and releases one host.
 
-To add a cloud: subclass `Provider`, implement its methods, and register it in `PROVIDERS`. The pack never imports a
-provider directly, so nothing else changes. API keys are read from the environment or from ~/.labagent/credentials, are only
-ever sent to their own provider, and never appear in state, the envelope, logs or error messages.
+To add a cloud: subclass `Provider`, implement its methods, set `id`, `title`, `capabilities` and `env_var`, and register it in
+`PROVIDERS`. Nothing that uses a provider imports a specific one. API keys are read from the environment or from
+~/.labagent/credentials, are only ever sent to their own provider, and never appear in state, the envelope, logs or error messages.
 """
 from __future__ import annotations
 
@@ -18,9 +18,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from ..base import PackError
+from .errors import ComputeError
 
-USER_AGENT = "labagent-gpu-notebooks (+https://github.com/becloudready/labagent)"
+USER_AGENT = "labagent-compute (+https://github.com/becloudready/labagent)"
 
 
 @dataclass
@@ -89,7 +89,10 @@ class SshKey:
 
 
 class Provider:
-    id = ""
+    id = ""                                 # what --cloud takes
+    title = ""                              # what a person calls it
+    capabilities: Tuple[str, ...] = ()      # any of: offers, ssh_keys, launch
+    env_var = ""                            # where its API key may be set; the same key may also live in the credentials file
     warnings: List[str]
 
     def offers(self, query: OfferQuery) -> List[Offer]:
@@ -101,7 +104,7 @@ class Provider:
         raise NotImplementedError
 
     def validate(self, spec: HostSpec) -> Dict[str, Any]:
-        """Read only. Raise PackError if this host cannot be created as asked. Return non-secret facts (price)."""
+        """Read only. Raise ComputeError if this host cannot be created as asked. Return non-secret facts (price)."""
         raise NotImplementedError
 
     def find(self, name: str, tag: str) -> Optional[Host]:
@@ -179,7 +182,7 @@ def make_http(api_key: str) -> Http:
         except urllib.error.HTTPError as e:
             raise ApiError(e.code, e.read().decode("utf-8", "replace")[:300])
         except (urllib.error.URLError, OSError):
-            raise PackError("cannot reach api.shadeform.ai (network error)")
+            raise ComputeError("cannot reach api.shadeform.ai (network error)")
         return json.loads(raw) if raw.strip() else {}
     return call
 
@@ -188,6 +191,9 @@ class ShadeformProvider(Provider):
     """Shadeform rents GPU VMs from many clouds behind one API. https://docs.shadeform.ai/api-reference"""
 
     id = "shadeform"
+    title = "Shadeform"
+    capabilities = ("offers", "ssh_keys", "launch")
+    env_var = "SHADEFORM_API_KEY"
 
     def __init__(self, api_key: Optional[str] = None, http: Optional[Http] = None):
         self.warnings: List[str] = []
@@ -196,7 +202,7 @@ class ShadeformProvider(Provider):
             if not key:
                 key, self.warnings = read_secret("shadeform", "SHADEFORM_API_KEY")
             if not key:
-                raise PackError(f"no Shadeform API key: set SHADEFORM_API_KEY or put it under [shadeform] in {credentials_path()}")
+                raise ComputeError(f"no Shadeform API key: set SHADEFORM_API_KEY or put it under [shadeform] in {credentials_path()}")
             http = make_http(key)
         self._http = http
 
@@ -205,18 +211,18 @@ class ShadeformProvider(Provider):
             return self._http(method, path, body)
         except ApiError as e:
             if e.status in (401, 403):
-                raise PackError("Shadeform rejected the API key: check SHADEFORM_API_KEY or ~/.labagent/credentials")
+                raise ComputeError("Shadeform rejected the API key: check SHADEFORM_API_KEY or ~/.labagent/credentials")
             raise
 
     @staticmethod
-    def _fail(e: ApiError, what: str) -> PackError:
+    def _fail(e: ApiError, what: str) -> ComputeError:
         detail = e.body
         try:
             j = json.loads(e.body)
             detail = j.get("error") or detail
         except ValueError:
             pass
-        return PackError(f"Shadeform could not {what} ({e}): {str(detail)[:200]}")
+        return ComputeError(f"Shadeform could not {what} ({e}): {str(detail)[:200]}")
 
     @staticmethod
     def _host(d: Dict[str, Any]) -> Host:
@@ -278,19 +284,19 @@ class ShadeformProvider(Provider):
 
     def validate(self, spec: HostSpec) -> Dict[str, Any]:
         if not NAME_RE.fullmatch(spec.name):
-            raise PackError("the host name must be 1 to 50 letters, digits, - or _")
+            raise ComputeError("the host name must be 1 to 50 letters, digits, - or _")
         offers = self.offers(OfferQuery(instance_type=spec.instance_type))
         menu = "; ".join(f"vendor={o.vendor} region={o.region} ${o.hourly_usd:.2f}/h" for o in offers[:5]) or "none available right now"
 
-        def refuse(why: str) -> PackError:
-            return PackError(f"{why}. Available {spec.instance_type}: {menu}. See all: labagent offers --type {spec.instance_type}")
+        def refuse(why: str) -> ComputeError:
+            return ComputeError(f"{why}. Available {spec.instance_type}: {menu}. See all: labagent compute offers --cloud {self.id} --type {spec.instance_type}")
         if not spec.vendor or not spec.region:
             raise refuse("set vendor and region")
         match = [o for o in offers if o.vendor.lower() == spec.vendor.lower() and o.region == spec.region]
         if not match:
             raise refuse(f"{spec.instance_type} is not available on {spec.vendor} in {spec.region}")
         if spec.os_image and spec.os_image not in match[0].os_options:
-            raise PackError(f"image '{spec.os_image}' is not offered there. Offered: {', '.join(match[0].os_options) or 'none listed'}")
+            raise ComputeError(f"image '{spec.os_image}' is not offered there. Offered: {', '.join(match[0].os_options) or 'none listed'}")
         return {"hourly_cents": round(match[0].hourly_usd * 100), "os_options": match[0].os_options, "gpu_type": match[0].gpu_type}
 
     def find(self, name: str, tag: str) -> Optional[Host]:
@@ -339,5 +345,26 @@ PROVIDERS: Dict[str, Callable[[], Provider]] = {"shadeform": ShadeformProvider}
 
 def make(provider_id: str) -> Provider:
     if provider_id not in PROVIDERS:
-        raise PackError(f"unknown cloud '{provider_id}'. Available: {', '.join(sorted(PROVIDERS))}")
+        raise ComputeError(f"unknown cloud '{provider_id}'. Available: {', '.join(sorted(PROVIDERS))}")
     return PROVIDERS[provider_id]()
+
+
+def _shown(path: Path) -> str:
+    home = str(Path.home())
+    return "~" + str(path)[len(home):] if str(path).startswith(home) else str(path)
+
+
+def catalog() -> List[Dict[str, Any]]:
+    """Every cloud this install can talk to, and whether its key is set. Reads no network and never returns a key."""
+    out = []
+    for cid in sorted(PROVIDERS):
+        what = PROVIDERS[cid]
+        env_var = getattr(what, "env_var", "")
+        key, warnings = read_secret(cid, env_var) if env_var else (None, [])
+        source = None
+        if key:
+            source = "environment" if os.environ.get(env_var) else "credentials file"
+        out.append({"id": cid, "title": getattr(what, "title", "") or cid, "capabilities": list(getattr(what, "capabilities", ())),
+                    "credentials": {"configured": bool(key), "source": source, "env_var": env_var or None, "file": _shown(credentials_path()), "section": cid},
+                    "warnings": warnings})
+    return out

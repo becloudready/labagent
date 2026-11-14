@@ -1,4 +1,4 @@
-"""`labagent offers` and `labagent ssh-keys`: parsing, filtering, output shape and exit codes, against a fake API."""
+"""`labagent compute offers` and `labagent compute ssh-keys`: parsing, filtering, output shape and exit codes, against a fake API."""
 import json
 from urllib.parse import parse_qs, urlparse
 
@@ -6,9 +6,9 @@ import pytest
 
 from labagent import cli
 from labagent.packs.base import PackError
-from labagent.packs.gpu_notebooks import offers as offers_cli
-from labagent.packs.gpu_notebooks import providers
-from labagent.packs.gpu_notebooks.providers import ApiError, OfferQuery, ShadeformProvider
+from labagent.compute import cli as offers_cli
+from labagent.compute import providers
+from labagent.compute.providers import ApiError, OfferQuery, ShadeformProvider
 
 OS_A = "ubuntu24.04_cuda12.4_shade_os"
 OS_B = "ubuntu22.04_cuda12.2_shade_os"
@@ -146,7 +146,7 @@ def test_ssh_keys_never_carry_key_material():
 def test_the_pack_check_still_refuses_with_a_menu_that_points_at_offers():
     p, _ = provider()
     spec = providers.HostSpec(name="x", instance_type="H100", vendor="alpha", region="nowhere")
-    with pytest.raises(PackError, match=r"not available on alpha in nowhere.*vendor=alpha region=us-1 \$1.99/h.*labagent offers --type H100"):
+    with pytest.raises(PackError, match=r"not available on alpha in nowhere.*vendor=alpha region=us-1 \$1.99/h.*labagent compute offers --cloud shadeform --type H100"):
         p.validate(spec)
 
 
@@ -160,9 +160,10 @@ def api(monkeypatch):
 
 
 def test_offers_json_is_a_stable_machine_shape(api, capsys):
-    assert cli.main(["offers", "--gpu", "H100", "--json"]) == 0
+    assert cli.main(["compute", "offers", "--cloud", "shadeform", "--gpu", "H100", "--json"]) == 0
     doc = json.loads(capsys.readouterr().out)
-    assert set(doc) == {"cloud", "fetched_at", "count", "returned", "offers"} and doc["cloud"] == "shadeform" and doc["count"] == 2
+    assert set(doc) == {"schema", "status", "cloud", "cloud_title", "fetched_at", "count", "returned", "warnings", "offers"}
+    assert (doc["schema"], doc["status"], doc["cloud"], doc["cloud_title"], doc["count"]) == ("compute.offers/1", "ok", "shadeform", "Shadeform", 2)
     first = doc["offers"][0]
     assert set(first) == {"instance_type", "vendor", "region", "region_name", "gpu_type", "num_gpus", "vram_gb", "vcpus", "memory_gb", "storage_gb",
                           "interconnect", "kind", "hourly_usd", "available", "boot_seconds", "max_labs", "os_options", "launch"}
@@ -178,20 +179,20 @@ def test_the_launch_block_is_what_the_pack_takes():
 
 
 def test_max_labs_is_only_estimated_for_known_gpus(api, capsys):
-    cli.main(["offers", "--json", "--all"])
+    cli.main(["compute", "offers", "--cloud", "shadeform", "--json", "--all"])
     by = {(o["instance_type"], o["region"]): o["max_labs"] for o in json.loads(capsys.readouterr().out)["offers"]}
     assert by[("H100", "us-1")] == 7 and by[("H100x8", "us-1")] == 56 and by[("A100_80Gx2", "us-3")] == 14 and by[("L40S", "us-2")] is None
 
 
 def test_limit_and_counts(api, capsys):
-    cli.main(["offers", "--json", "--limit", "1"])
+    cli.main(["compute", "offers", "--cloud", "shadeform", "--json", "--limit", "1"])
     doc = json.loads(capsys.readouterr().out)
     assert (doc["count"], doc["returned"], len(doc["offers"])) == (4, 1, 1)
     assert doc["offers"][0]["vendor"] == "gamma"
 
 
 def test_table_shows_the_next_command_and_the_os_images(api, capsys):
-    assert cli.main(["offers", "--gpu", "H100"]) == 0
+    assert cli.main(["compute", "offers", "--cloud", "shadeform", "--gpu", "H100"]) == 0
     out = capsys.readouterr().out
     assert "alpha" in out and OS_A in out and f"{OS_A}, {OS_B}" in out
     assert "--param cloud=shadeform --param instance_type=H100 --param vendor=alpha --param region=us-1" in out
@@ -199,29 +200,29 @@ def test_table_shows_the_next_command_and_the_os_images(api, capsys):
 
 
 def test_table_hides_the_stock_column_until_all(api, capsys):
-    cli.main(["offers", "--gpu", "H100"])
+    cli.main(["compute", "offers", "--cloud", "shadeform", "--gpu", "H100"])
     assert "STOCK" not in capsys.readouterr().out
-    cli.main(["offers", "--gpu", "H100", "--all"])
+    cli.main(["compute", "offers", "--cloud", "shadeform", "--gpu", "H100", "--all"])
     out = capsys.readouterr().out
     assert "STOCK" in out and "H100x8" in out
 
 
 def test_table_says_how_many_more_exist(api, capsys):
-    cli.main(["offers", "--limit", "1"])
+    cli.main(["compute", "offers", "--cloud", "shadeform", "--limit", "1"])
     assert "3 more not shown" in capsys.readouterr().out
 
 
 def test_no_match_is_not_an_error(api, capsys):
-    assert cli.main(["offers", "--gpu", "H100", "--gpus", "8"]) == 0
+    assert cli.main(["compute", "offers", "--cloud", "shadeform", "--gpu", "H100", "--gpus", "8"]) == 0
     assert "No offers match right now" in capsys.readouterr().out
-    assert cli.main(["offers", "--gpu", "H100", "--gpus", "8", "--json"]) == 0
+    assert cli.main(["compute", "offers", "--cloud", "shadeform", "--gpu", "H100", "--gpus", "8", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["offers"] == []
 
 
 def test_control_characters_from_the_api_never_reach_the_terminal(monkeypatch, capsys):
     evil = {"instance_types": [shape("al\x1b[2Jpha", "H100", "H100", 1, 100, [("us\x07-1", True, "on_demand")])]}
     monkeypatch.setitem(providers.PROVIDERS, "shadeform", lambda: ShadeformProvider(http=Fake(types=evil)))
-    cli.main(["offers"])
+    cli.main(["compute", "offers", "--cloud", "shadeform"])
     out = capsys.readouterr().out
     assert "\x1b" not in out and "\x07" not in out and "al?[2Jpha" in out
 
@@ -229,16 +230,16 @@ def test_control_characters_from_the_api_never_reach_the_terminal(monkeypatch, c
 def test_the_next_command_is_safe_to_paste_into_a_shell(monkeypatch, capsys):
     evil = {"instance_types": [shape("a;touch${IFS}pwned", "H100", "H100", 1, 100, [("us-1", True, "on_demand")])]}
     monkeypatch.setitem(providers.PROVIDERS, "shadeform", lambda: ShadeformProvider(http=Fake(types=evil)))
-    cli.main(["offers"])
+    cli.main(["compute", "offers", "--cloud", "shadeform"])
     line = next(ln for ln in capsys.readouterr().out.splitlines() if ln.strip().startswith("labagent launch"))
     assert "'vendor=a;touch${IFS}pwned'" in line                               # one quoted word, not a command
 
 
 def test_ssh_keys_table_and_json(api, capsys):
-    assert cli.main(["ssh-keys"]) == 0
+    assert cli.main(["compute", "ssh-keys", "--cloud", "shadeform"]) == 0
     out = capsys.readouterr().out
     assert "key-1" in out and "laptop" in out and "Managed" in out and "AAAA" not in out and "BBBB" not in out
-    assert cli.main(["ssh-keys", "--json"]) == 0
+    assert cli.main(["compute", "ssh-keys", "--cloud", "shadeform", "--json"]) == 0
     doc = json.loads(capsys.readouterr().out)
     assert doc["ssh_keys"] == [{"id": "key-1", "name": "laptop", "is_default": False}, {"id": "key-2", "name": "Managed", "is_default": True}]
     assert "AAAA" not in json.dumps(doc)
@@ -246,14 +247,16 @@ def test_ssh_keys_table_and_json(api, capsys):
 
 def test_no_keys_in_the_account(monkeypatch, capsys):
     monkeypatch.setitem(providers.PROVIDERS, "shadeform", lambda: ShadeformProvider(http=Fake(keys={"ssh_keys": []})))
-    assert cli.main(["ssh-keys"]) == 0
+    assert cli.main(["compute", "ssh-keys", "--cloud", "shadeform"]) == 0
     assert "No SSH keys" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("argv,message", [
-    (["offers", "--cloud", "nowhere"], "unknown cloud"),
-    (["offers", "--limit", "0"], "--limit must be 1 or more"),
-    (["offers", "--gpus", "0"], "--gpus must be 1 or more"),
+    (["compute", "offers", "--cloud", "nowhere"], "unknown cloud"),
+    (["compute", "offers"], "--cloud is required. Available: shadeform"),
+    (["compute", "ssh-keys"], "--cloud is required"),
+    (["compute", "offers", "--cloud", "shadeform", "--limit", "0"], "--limit must be 1 or more"),
+    (["compute", "offers", "--cloud", "shadeform", "--gpus", "0"], "--gpus must be 1 or more"),
 ])
 def test_bad_input_exits_2_with_a_message(api, capsys, argv, message):
     assert cli.main(argv) == 2
@@ -263,7 +266,7 @@ def test_bad_input_exits_2_with_a_message(api, capsys, argv, message):
 def test_a_missing_key_exits_2_and_never_prints_one(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("LABAGENT_HOME", str(tmp_path))
     monkeypatch.delenv("SHADEFORM_API_KEY", raising=False)
-    assert cli.main(["offers"]) == 2
+    assert cli.main(["compute", "offers", "--cloud", "shadeform"]) == 2
     assert "no Shadeform API key" in capsys.readouterr().err
 
 
@@ -271,10 +274,10 @@ def test_a_rejected_key_exits_2(monkeypatch, capsys):
     def refuse(method, path, body=None):
         raise ApiError(403, "forbidden")
     monkeypatch.setitem(providers.PROVIDERS, "shadeform", lambda: ShadeformProvider(http=refuse))
-    assert cli.main(["ssh-keys"]) == 2
+    assert cli.main(["compute", "ssh-keys", "--cloud", "shadeform"]) == 2
     assert "rejected the API key" in capsys.readouterr().err
 
 
 def test_the_commands_are_not_mistaken_for_plain_english(api, capsys):
     """Anything that is not a known command goes to the language model front end, so both names must be in KNOWN."""
-    assert {"offers", "ssh-keys"} <= cli.KNOWN
+    assert "compute" in cli.KNOWN

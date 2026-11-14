@@ -11,7 +11,7 @@ labagent launch rag-sec-tutorial --name demo         # re-run to resume after a 
 labagent destroy rag-sec-tutorial --name demo        # removes only what this pack created
 ```
 
-`labagent launch -f lab.yaml` reads the pack, name and parameters from a file instead: see [launch-files.md](launch-files.md). Other packs: [gpu-notebooks](gpu-notebooks.md) (JupyterLab per GPU slice on a rented GPU VM) and [redis-migrate](redis-migrate.md).
+`labagent launch -f lab.yaml` reads the pack, name and parameters from a file instead: see [launch-files.md](launch-files.md). Other packs: [gpu-notebooks](gpu-notebooks.md) (JupyterLab per GPU slice on a rented GPU VM; what to rent is in [compute.md](compute.md)) and [redis-migrate](redis-migrate.md).
 
 ## Writing a pack
 

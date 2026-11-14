@@ -10,12 +10,13 @@ from pathlib import Path
 
 import pytest
 
+from labagent.compute import providers
+from labagent.compute.providers import ApiError, HostSpec, ShadeformProvider, read_secret
 from labagent.packs import registry
 from labagent.packs.base import load_state, run_pack
-from labagent.packs.gpu_notebooks import providers
+from labagent.packs.gpu_notebooks import pack as pack_module
 from labagent.packs.gpu_notebooks.pack import GpuNotebooks, credentials_path, default_hostname, host_name, host_tag, login_path
 from tests.test_packaging import patterns
-from labagent.packs.gpu_notebooks.providers import ApiError, HostSpec, ShadeformProvider, read_secret
 
 KEY = "sf-test-key-0123456789"
 TYPES = {"instance_types": [
@@ -432,7 +433,7 @@ def test_destroy_also_removes_the_local_logins(home):
 
 # ---- the installer script that runs on the VM ----
 
-SETUP = Path(providers.__file__).with_name("setup.sh")
+SETUP = Path(pack_module.__file__).with_name("setup.sh")
 
 
 def test_installer_script_is_valid_bash_and_shipped_in_the_wheel():

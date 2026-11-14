@@ -11,10 +11,10 @@ from labagent import cli
 from labagent.console import Console, Style, color_enabled, elapsed_text, strip_ansi
 from labagent.packs import registry
 from labagent.packs.base import load_state, run_pack
-from labagent.packs.gpu_notebooks import offers as offers_cli
-from labagent.packs.gpu_notebooks import providers
+from labagent.compute import cli as offers_cli
+from labagent.compute import providers
 from labagent.packs.gpu_notebooks.pack import GpuNotebooks
-from labagent.packs.gpu_notebooks.providers import ShadeformProvider
+from labagent.compute.providers import ShadeformProvider
 from tests import test_gpu_notebooks as gpu
 from tests import test_gpu_offers as offers
 
@@ -263,25 +263,25 @@ def api(monkeypatch):
 
 
 def test_a_coloured_offers_table_is_the_plain_table_plus_colour(api, capsys):
-    cli.main(["offers", "--all", "--color", "never"])
+    cli.main(["compute", "offers", "--cloud", "shadeform", "--all", "--color", "never"])
     plain = capsys.readouterr().out
-    cli.main(["offers", "--all", "--color", "always"])
+    cli.main(["compute", "offers", "--cloud", "shadeform", "--all", "--color", "always"])
     colored = capsys.readouterr().out
     assert "\x1b[" in colored and strip_ansi(colored) == plain
 
 
 def test_a_coloured_key_table_is_the_plain_table_plus_colour(api, capsys):
-    cli.main(["ssh-keys", "--color", "never"])
+    cli.main(["compute", "ssh-keys", "--cloud", "shadeform", "--color", "never"])
     plain = capsys.readouterr().out
-    cli.main(["ssh-keys", "--color", "always"])
+    cli.main(["compute", "ssh-keys", "--cloud", "shadeform", "--color", "always"])
     colored = capsys.readouterr().out
     assert "\x1b[" in colored and strip_ansi(colored) == plain
 
 
 def test_json_output_is_never_coloured(api, capsys):
-    cli.main(["offers", "--json", "--color", "always"])
+    cli.main(["compute", "offers", "--cloud", "shadeform", "--json", "--color", "always"])
     assert "\x1b" not in capsys.readouterr().out
-    cli.main(["ssh-keys", "--json", "--color", "always"])
+    cli.main(["compute", "ssh-keys", "--cloud", "shadeform", "--json", "--color", "always"])
     assert "\x1b" not in capsys.readouterr().out
 
 

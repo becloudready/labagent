@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from labagent.packs.gpu_notebooks import providers
+from labagent.packs.gpu_notebooks import pack as gpu_pack
 
-SCRIPT = Path(providers.__file__).with_name("setup.sh")
+SCRIPT = Path(gpu_pack.__file__).with_name("setup.sh")
 pytestmark = pytest.mark.skipif(not shutil.which("bash"), reason="needs bash")
 
 NVIDIA_SMI = r'''#!__PY__
