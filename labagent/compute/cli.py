@@ -1,9 +1,11 @@
-"""`labagent compute clouds | offers | ssh-keys`: what can be rented right now, from whom, and what to type into `launch`. Read only.
+"""`labagent compute clouds | offers | ssh-keys | ssh-key-add`: what can be rented right now, from whom, and what to type into `launch`.
+Everything is read only except `ssh-key-add`, which adds one PUBLIC key to your cloud account (free, and you can delete it there).
 
     labagent compute clouds                                       which clouds are wired in, and whether their key is set
     labagent compute offers --cloud shadeform --gpu H100          a table, cheapest first
     labagent compute offers --cloud shadeform --gpu H100 --json   the same as JSON, for a console or script
-    labagent compute ssh-keys --cloud shadeform                   the ssh_key_id values you can use
+    labagent compute ssh-keys --cloud shadeform                   the ssh_key_id values you can use, with each key's fingerprint
+    labagent compute ssh-key-add --cloud all --name NAME          make ONE key for launches (once) and add its public half to every cloud
 
 The JSON is a contract for a console: every document has `schema` (what it is and its version), `status` (ok or failed) and, on
 failure, `error`. Keys are only ever added, never renamed or removed. With --json a failure is a JSON document on stdout and exit 2,
@@ -12,19 +14,22 @@ so a caller never has to parse text. Each offer carries `launch`, the gpu-notebo
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from . import providers
+from . import keys as keyfiles, providers
 from .errors import ComputeError
 from .providers import Offer, OfferQuery
 from ..console import Console, Style
 
 KINDS = ("vm", "baremetal", "container")
-SCHEMAS = {"clouds": "compute.clouds/1", "offers": "compute.offers/1", "ssh-keys": "compute.ssh-keys/1"}
+SCHEMAS = {"clouds": "compute.clouds/1", "offers": "compute.offers/1", "ssh-keys": "compute.ssh-keys/1", "ssh-key-add": "compute.ssh-key/1"}
+SCHEMAS["ssh-key-add-all"] = "compute.ssh-key-all/1"
+ALL = "all"                                                 # --cloud all: every cloud whose API key is set
 
 # ---- gpu-notebooks hints ----------------------------------------------------------------------------------------------
 # Smallest-slice MIG instances per GPU, for the families the gpu-notebooks pack has been designed around. Anything not listed has no
@@ -151,9 +156,11 @@ def keys_text(cloud: str, keys: List[providers.SshKey], s: Optional[Style] = Non
     top = heading(title or cloud, "SSH keys", f"{len(keys)} in this account", fetched_at, s, dot) + "\n"
     if not keys:
         return top + "No SSH keys in this account. Add your public key in the cloud's console, then run this again."
-    rows = [[_clean(k.id), "yes" if k.is_default else "", _clean(k.name)] for k in keys]
-    return (top + _table(rows, ["SSH_KEY_ID", "DEFAULT", "NAME"], _painter(s) if s.on else None)
-            + "\n\n" + s("Use one as ssh_key_id. The pack logs in from this machine, so choose a key whose private half you hold (ssh_key_file).", "gray"))
+    rows = [[_clean(k.id), "yes" if k.is_default else "", _clean(k.name), _clean(k.fingerprint) or "-"] for k in keys]
+    return (top + _table(rows, ["SSH_KEY_ID", "DEFAULT", "NAME", "FINGERPRINT"], _painter(s) if s.on else None)
+            + "\n\n" + s("Use one as ssh_key_id. The launch logs in from this machine, so it needs the private half too (ssh_key_file). "
+                          "A launch checks the two match before it rents anything. The account's default key is usually one you do not hold: "
+                          "make your own with `labagent compute ssh-key-add`.", "gray"))
 
 
 def clouds_text(clouds: List[Dict[str, Any]], s: Optional[Style] = None, dot: str = "-") -> str:
@@ -162,7 +169,8 @@ def clouds_text(clouds: List[Dict[str, Any]], s: Optional[Style] = None, dot: st
     rows = []
     for c in clouds:
         cred = c["credentials"]
-        key = f"set ({cred['source']})" if cred["configured"] else f"missing: set {cred['env_var']} or [{cred['section']}] in {cred['file']}"
+        where = f"{cred['env_var']} or [{cred['section']}] in {cred['file']}" + (f" or put it in {cred['key_file']}" if cred.get("key_file") else "")
+        key = f"set ({cred['source']})" if cred["configured"] else f"missing: set {where}"
         rows.append([_clean(c["id"]), _clean(c["title"]), _clean(", ".join(x.replace("_", "-") for x in c["capabilities"])) or "-", _clean(key)])
     return top + _table(rows, ["CLOUD", "NAME", "CAN", "KEY"], _painter(s) if s.on else None)
 
@@ -171,7 +179,7 @@ def clouds_text(clouds: List[Dict[str, Any]], s: Optional[Style] = None, dot: st
 
 def add_parser(sub) -> None:
     c = sub.add_parser("compute", help="Rent compute from a cloud: what is on offer, what it costs, your SSH keys (read only)")
-    cs = c.add_subparsers(dest="compute_cmd", required=True, metavar="{clouds,offers,ssh-keys}")
+    cs = c.add_subparsers(dest="compute_cmd", required=True, metavar="{clouds,offers,ssh-keys,ssh-key-add}")
     colour = dict(choices=("auto", "always", "never"), default="auto", help="Colour the table: auto = only on a terminal, never with NO_COLOR set")
     cloud = dict(metavar="CLOUD", help="Whose API to ask. Required: see `labagent compute clouds`")
 
@@ -198,6 +206,13 @@ def add_parser(sub) -> None:
     s.add_argument("--cloud", **cloud)
     s.add_argument("--json", action="store_true", help="Machine-readable output for a console or script")
     s.add_argument("--color", **colour)
+
+    a = cs.add_parser("ssh-key-add", help="Make an SSH key for launches (if its file is missing) and add its PUBLIC half to the cloud account")
+    a.add_argument("--cloud", metavar="CLOUD", help="Whose account gets the key, or `all` for every cloud whose API key is set: one key for all clouds")
+    a.add_argument("--name", required=True, help="What the cloud calls the key, e.g. labagent-console")
+    a.add_argument("--file", metavar="PATH", help="Private key file (default: ~/.labagent/keys/labagent_ed25519, one key for every cloud). Created if missing, never overwritten")
+    a.add_argument("--json", action="store_true", help="Machine-readable output for a console or script")
+    a.add_argument("--color", **colour)
 
 
 def _provider(args) -> providers.Provider:
@@ -226,7 +241,7 @@ def run(args) -> int:
             print(f"error: {e}", file=sys.stderr)
         return 2
     print(json.dumps(out, indent=2) if args.json else out)
-    return 0
+    return getattr(args, "_rc", 0)                               # 2 when `ssh-key-add --cloud all` could not add the key somewhere
 
 
 def _run(args, kind: str, con: Console):
@@ -238,6 +253,8 @@ def _run(args, kind: str, con: Console):
             for w in c["warnings"]:
                 print(f"warning: {w}", file=sys.stderr)
         return _ok("clouds", clouds=clouds) if args.json else clouds_text(clouds, s, dot)
+    if kind == "ssh-key-add" and getattr(args, "cloud", None) == ALL:
+        return _key_add_all(args, s)
     query = _query(args) if kind == "offers" else None            # a bad flag is refused before any call to the cloud
     provider = _provider(args)
     for w in getattr(provider, "warnings", []):
@@ -247,11 +264,73 @@ def _run(args, kind: str, con: Console):
         keys = provider.ssh_keys()
         if args.json:
             return _ok("ssh-keys", cloud=args.cloud, cloud_title=title, fetched_at=fetched, count=len(keys), warnings=warnings,
-                       ssh_keys=[{"id": k.id, "name": k.name, "is_default": k.is_default} for k in keys])
+                       ssh_keys=[{"id": k.id, "name": k.name, "is_default": k.is_default, "fingerprint": k.fingerprint} for k in keys])
         return keys_text(args.cloud, keys, s, title, fetched, dot)
+    if kind == "ssh-key-add":
+        return _key_add(args, provider, title, fetched, warnings, s)
     found = provider.offers(query)
     shown = found[:args.limit] if args.limit else found
     if args.json:
         return _ok("offers", cloud=args.cloud, cloud_title=title, fetched_at=fetched, count=len(found), returned=len(shown), warnings=warnings,
                    offers=[offer_json(args.cloud, o) for o in shown])
     return offers_text(args.cloud, shown, len(found), args.all, s, title, fetched, dot)
+
+
+def _key_name(args) -> str:
+    name = (args.name or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _.-]{0,59}", name):
+        raise ComputeError("--name must be 1 to 60 letters, digits, spaces, - _ or .")
+    return name
+
+
+def _key_add_all(args, s: Style):
+    """One key, every cloud: make the file once, add its public half to each cloud that has an API key. One cloud failing does not stop the rest."""
+    name = _key_name(args)
+    path = os.path.expanduser(args.file or keyfiles.default_key_file())
+    configured = [c for c in providers.catalog() if c["credentials"]["configured"] and "ssh_keys" in c["capabilities"]]
+    if not configured:
+        raise ComputeError("no cloud has an API key set, so there is nowhere to add the key. See: labagent compute clouds")
+    public, made = keyfiles.ensure_key(path, name)
+    fingerprint = providers.fingerprint_of(public)
+    rows: List[Dict[str, Any]] = []
+    for c in providers.catalog():
+        row: Dict[str, Any] = {"cloud": c["id"], "cloud_title": c["title"]}
+        if c not in configured:
+            rows.append({**row, "status": "skipped", "error": f"no API key: set {c['credentials']['env_var']} or [{c['id']}] in {c['credentials']['file']}"})
+            continue
+        try:
+            key, added = providers.make(c["id"]).add_ssh_key(name, public)
+            rows.append({**row, "status": "ok", "ssh_key_id": key.id, "name": key.name, "added_to_cloud": added})
+        except ComputeError as e:
+            rows.append({**row, "status": "failed", "error": str(e)})
+    failed = [r["cloud"] for r in rows if r["status"] == "failed"]
+    if failed:
+        args._rc = 2
+    if args.json:
+        doc = _ok("ssh-key-add-all", fetched_at=_now(), name=name, fingerprint=fingerprint, key_file=path, key_file_created=made, clouds=rows)
+        if failed:
+            doc.update(status="failed", error="the key could not be added to: " + ", ".join(failed))
+        return doc
+    shown = [[_clean(r["cloud"]), {"ok": ("added" if r.get("added_to_cloud") else "already there"), "skipped": "skipped", "failed": "FAILED"}[r["status"]],
+              _clean(r.get("ssh_key_id") or r.get("error") or "")] for r in rows]
+    lines = [s(("Created " if made else "Using ") + path, "bold") + s(" (private half, keep it on this machine)", "gray"),
+             s(f"One key for every cloud: {name}  {fingerprint}", "bold"), "", _table(shown, ["CLOUD", "RESULT", "KEY ID OR REASON"]), "",
+             "Launches find this key in each account by its fingerprint: no ssh_key_id to copy. The private file is used from",
+             f"  {path}", "unless LABAGENT_SSH_KEY_FILE or the ssh_key_file parameter names another."]
+    return "\n".join(lines)
+
+
+def _key_add(args, provider: providers.Provider, title: str, fetched: str, warnings: List[str], s: Style):
+    name = _key_name(args)
+    path = os.path.expanduser(args.file or keyfiles.default_key_file())
+    public, made = keyfiles.ensure_key(path, name)                      # the private half stays in this file: only the public line goes on
+    key, added = provider.add_ssh_key(name, public)
+    if args.json:
+        return _ok("ssh-key-add", cloud=args.cloud, cloud_title=title, fetched_at=fetched, warnings=warnings, ssh_key_id=key.id,
+                   name=key.name, fingerprint=key.fingerprint, key_file=path, key_file_created=made, added_to_cloud=added)
+    lines = [s(("Created " if made else "Using ") + path, "bold") + s(" (private half, keep it on this machine)", "gray"),
+             s(("Added to " if added else "Already in ") + f"{title}: ", "bold") + f"{_clean(key.name)}  {_clean(key.id)}  {key.fingerprint}",
+             "", "Use it for launches:",
+             f"  LABAGENT_SSH_KEY_FILE={shlex.quote(path)}",
+             f"  ssh_key_id={shlex.quote(_clean(key.id))}"]
+    return "\n".join(lines)

@@ -11,8 +11,8 @@ from . import cleanup as cleanup_mod, iam_ops, sweep
 
 PACK_COMMANDS = {"launch", "destroy"}
 COMMANDS = {"provision", "inventory", "sweep", "reset", "offboard", "audit", "cleanup"} | PACK_COMMANDS
-# Parameters a remote job may not set: they point at the runner's own disk or identity, not at the lab.
-JOB_PARAM_DENY = {"image", "profile", "ssh_key_file"}
+# Parameters a remote job may not set: they point at the runner's own disk or identity, not at the lab, or keep a billed VM after a failure.
+JOB_PARAM_DENY = {"image", "profile", "ssh_key_file", "keep_on_failure"}
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}$")
 
 

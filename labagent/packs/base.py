@@ -66,6 +66,11 @@ class Pack:
     def destroy_steps(self, ctx: PackContext) -> List[Step]:
         raise NotImplementedError
 
+    def on_failure(self, ctx: "PackContext", failed_step: str) -> Optional[Dict[str, Any]]:
+        """Called once when a `launch` stops at a failed step, before the result is returned. A pack that rents something billable overrides this
+        to release it. Return a short non-secret note ({"action": "deleted" | "kept" | "nothing" | "failed", ...}) or None. Never raise."""
+        return None
+
     def describe(self) -> Dict[str, Any]:
         """Machine-readable description for `labagent packs --json`. No secrets: defaults are literals from the code."""
         return {"id": self.id, "title": self.title, "summary": self.summary, "aliases": list(self.aliases),
@@ -127,6 +132,26 @@ def _seal_passwords(env: Envelope, ctx: PackContext, pubkey_pem: Optional[str]) 
                    if not str(pw).startswith("(")]
 
 
+def _clean_up_after_failure(pack: Pack, ctx: PackContext, env: Envelope, step_id: str) -> None:
+    """A launch that did not finish must not leave something billable running. The pack decides what to release (`on_failure`)."""
+    try:
+        note = pack.on_failure(ctx, step_id)
+    except KeyboardInterrupt:
+        note = {"action": "failed", "detail": "interrupted while cleaning up: check the cloud console for a VM still running"}
+    except Exception as e:  # the cleanup must never hide the real error
+        note = {"action": "failed", "detail": f"cleanup raised {type(e).__name__}: check the cloud console for a VM still running"}
+    if note and note.get("action") in ("deleted", "nothing"):
+        state_path(pack.id, ctx.name).unlink(missing_ok=True)       # nothing is running any more: a rerun starts clean
+    try:
+        outs = pack.outputs(ctx.state)
+    except Exception:  # noqa: BLE001 (outputs are a convenience on failure)
+        outs = {}
+    if note:
+        env.summary["cleanup"] = note
+    if outs:
+        env.summary["outputs"] = outs
+
+
 def run_pack(pack: Pack, action: str, name: str, given: Dict[str, Any], services: Optional[Dict[str, Any]] = None,
              dry_run: bool = False, log: Optional[Callable[[str], None]] = None, pubkey_pem: Optional[str] = None,
              ui: Any = None) -> Envelope:
@@ -175,6 +200,11 @@ def run_pack(pack: Pack, action: str, name: str, given: Dict[str, Any], services
             if ui:
                 ui.step_failed(time.monotonic() - started)
             break
+        except KeyboardInterrupt:                    # Ctrl-C, or a CI cancel: still release what was rented below
+            item.update(state="failed", error="interrupted")
+            if ui:
+                ui.step_failed(time.monotonic() - started)
+            break
     if dry_run:
         env.summary = {"steps": len(env.items)}
         return env
@@ -182,6 +212,8 @@ def run_pack(pack: Pack, action: str, name: str, given: Dict[str, Any], services
     _seal_passwords(env, ctx, pubkey_pem)     # also on failure: a half-built lab must not lose the passwords it already handed out
     failed = [i for i in env.items if i["state"] == "failed"]
     if failed:
+        if action == "launch":
+            _clean_up_after_failure(pack, ctx, env, failed[0]["step"])
         env.fail(f"step '{failed[0]['step']}' failed: {failed[0].get('error', '')}")
     else:
         env.summary["outputs"] = pack.outputs(ctx.state)
