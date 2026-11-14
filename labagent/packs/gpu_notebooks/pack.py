@@ -114,26 +114,28 @@ class GpuNotebooks(Pack):
     title = "GPU notebooks: one JupyterLab per GPU slice"
     summary = "Rent a GPU VM and give each MIG slice its own JupyterLab"
     aliases = ("gpu-labs",)
-    platforms = ("shadeform", "lambda")
+    platforms = ("shadeform", "lambda", "nebius")
     cost_tier = "metered"
     default_name = "gpu"
     params = [
         Param("cloud", "shadeform", f"Whose API to call: {', '.join(sorted(providers.PROVIDERS))}"),
-        Param("instance_type", "H100", "The cloud's GPU shape, e.g. H100 (one GPU) or H100x8 (eight). Lambda's own names also work: gpu_1x_h100_pcie"),
+        Param("instance_type", "H100", "The cloud's GPU shape, e.g. H100 (one GPU) or H100x8 (eight). A cloud's own names also work: gpu_1x_h100_pcie (lambda), "
+                                       "gpu-h100-sxm/1gpu-16vcpu-200gb (nebius: platform/preset)"),
         Param("vendor", None, "shadeform only: the datacenter company behind the offer, e.g. scaleway. Leave out to list what is available"),
-        Param("region", None, "The region: on shadeform that vendor's, e.g. paris-france-1; on lambda e.g. us-west-3"),
+        Param("region", None, "The region: on shadeform that vendor's, e.g. paris-france-1; on lambda e.g. us-west-3; on nebius the region of the project (NEBIUS_PROJECT_ID), e.g. eu-north1"),
         Param("location", "", "Leave vendor and region out and set this instead: any | europe | north-america | asia-pacific. "
                               "The cheapest available machine of this instance_type there is picked"),
         Param("max_price", 0, "Most you will pay, in dollars per hour. Used when picking by location: dearer offers are ignored. 0 = no limit"),
         Param("os", None, "VM image from the cloud's list, e.g. ubuntu24.04_cuda13.0_shade_os (default: the cloud's)"),
         Param("ssh_key_id", None, "Optional. Leave it out to use your one shared key: the launch finds it in the cloud account by the fingerprint of the private "
                                   "key file (make it once for every cloud: `labagent compute ssh-key-add --cloud all --name labagent`). Set it to pick a "
-                                  "different key by id: see `labagent compute ssh-keys`. Never the account's default key, whose private half you do not hold"),
+                                  "different key by id: see `labagent compute ssh-keys`. Never the account's default key, whose private half you do not hold. "
+                                  "Not used on nebius, which has no key list: the key is installed on the VM when it is created"),
         Param("ssh_key_file", None, "The private key file to log in with. Default: the LABAGENT_SSH_KEY_FILE environment variable, then "
                                     "~/.labagent/keys/labagent_ed25519 if it exists. It is checked against the key in the account before anything is rented"),
         Param("keep_on_failure", "no", "yes | no. no deletes the VM when the launch fails, so a broken launch does not keep billing. "
                                        "yes leaves it running to debug (you pay until you destroy it, or `hours` ends)"),
-        Param("hours", 4, "shadeform deletes the VM after this many hours (1 to 72), whatever happens to this tool. lambda has no such setting: "
+        Param("hours", 4, "shadeform deletes the VM after this many hours (1 to 72), whatever happens to this tool. lambda and nebius have no such setting: "
                           "there it only sets the planned end shown in the report, and you must run destroy"),
         Param("mode", "mig", "mig: one hardware-isolated MIG slice per lab (H100, H200, A100). "
                              "shared: labs share the whole GPU with no isolation, for GPUs without MIG such as the RTX 5090 (needs labs)"),
@@ -175,7 +177,7 @@ class GpuNotebooks(Pack):
         st = ctx.state                                  # a machine picked by `location` is remembered, so a rerun asks for the same one
         return HostSpec(name=host_name(ctx.name), instance_type=str(p["instance_type"]), vendor=p["vendor"] or st.get("vendor"),
                         region=p["region"] or st.get("region"), os_image=p["os"] or st.get("os"), ssh_key_id=p["ssh_key_id"] or st.get("ssh_key_id"), hours=hours,
-                        tags=["labagent", host_tag(ctx.name)])
+                        tags=["labagent", host_tag(ctx.name)], ssh_public_key=st.get("ssh_public_key"))
 
     def _check_lab_params(self, ctx: PackContext) -> int:
         p = ctx.params
@@ -240,6 +242,8 @@ class GpuNotebooks(Pack):
         A mismatch is the one failure that cannot be fixed after the VM is rented, and it is the most likely one.
         With no ssh_key_id the key is the one in the account whose fingerprint is the private file's: one key can serve every cloud."""
         p = ctx.params
+        if not getattr(prov, "key_registry", True):
+            return self._inline_key(ctx)
         key_id = str(p["ssh_key_id"] or "").strip()
         if not key_id:
             return self._find_key(ctx, prov)
@@ -264,6 +268,21 @@ class GpuNotebooks(Pack):
         ctx.log(f"  ssh key: {key.name} ({key.id}), {key.fingerprint}, matches {os.path.basename(f)}")
         facts["ssh_key_verified"] = True
         return facts
+
+    def _inline_key(self, ctx: PackContext) -> Dict[str, Any]:
+        """A cloud with no key list (Nebius): the key is put on the VM when it is created, so what is needed is the PUBLIC half of the private file we log in with.
+        It is kept in state (a public key is not a secret), so the host step and a rerun ask for the same key."""
+        cloud, f = ctx.params["cloud"], self._key_file(ctx)
+        if not f:
+            raise PackError("no SSH key to log in with. Make one that every cloud shares: labagent compute ssh-key-add --cloud all --name labagent. "
+                            f"{cloud} installs its public half on the VM when it is created")
+        if str(ctx.params["ssh_key_id"] or "").strip():
+            ctx.log(f"  warning: ssh_key_id is ignored on {cloud}: it has no key list, so the key in {os.path.basename(f)} is installed on the VM when it is created")
+        public = ctx.services.get("public_half", keyfiles.public_half)(f)
+        fingerprint = providers.fingerprint_of(public)
+        ctx.state["ssh_public_key"] = public
+        ctx.log(f"  ssh key: {fingerprint} from {os.path.basename(f)}, installed on the VM when {cloud} creates it")
+        return {"ssh_key_id": "", "ssh_key_name": "installed at creation", "ssh_key_fingerprint": fingerprint, "ssh_key_verified": True}
 
     def _find_key(self, ctx: PackContext, prov) -> Dict[str, Any]:
         cloud, f = ctx.params["cloud"], self._key_file(ctx)

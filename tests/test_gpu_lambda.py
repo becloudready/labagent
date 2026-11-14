@@ -421,7 +421,7 @@ def test_the_cloud_list_shows_lambda_and_where_to_put_its_key_but_never_the_key(
     (lhome / "keys" / "lambda_api_key").unlink()
     assert cli.main(["compute", "clouds"]) == 0
     assert "missing: set LAMBDA_API_KEY or [lambda] in" in capsys.readouterr().out
-    assert [c["id"] for c in catalog()] == ["lambda", "shadeform"]
+    assert [c["id"] for c in catalog()] == ["lambda", "nebius", "shadeform"]
 
 
 # ---- the pack on Lambda -------------------------------------------------------------------------------------------------
@@ -507,6 +507,6 @@ def test_the_lambda_key_never_reaches_state_envelope_logs_or_errors(home, monkey
 
 def test_the_pack_offers_lambda_as_a_platform_and_names_its_region_format():
     pack = GpuNotebooks()
-    assert pack.platforms == ("shadeform", "lambda")
+    assert pack.platforms == ("shadeform", "lambda", "nebius")
     params = {p.name: p for p in pack.params}
     assert "lambda" in params["cloud"].help and "us-west-3" in params["region"].help and "no such setting" in params["hours"].help

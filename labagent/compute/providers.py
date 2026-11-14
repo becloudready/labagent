@@ -58,7 +58,8 @@ class HostSpec:
     region: Optional[str] = None
     os_image: Optional[str] = None
     ssh_key_id: Optional[str] = None
-    hours: int = 4                  # the provider deletes the host after this long, so a forgotten lab cannot bill for days
+    hours: int = 4                  # the provider deletes the host after this long, so a forgotten lab cannot bill for days (auto_delete clouds only)
+    ssh_public_key: Optional[str] = None   # clouds with no key list (key_registry False) install this PUBLIC key on the host when it is created
     shade_cloud: bool = True
     tags: List[str] = field(default_factory=list)
 
@@ -141,7 +142,13 @@ class Provider:
     env_var = ""                            # where its API key may be set; the same key may also live in the credentials file
     key_file = ""                           # optional: a file under ~/.labagent/keys/ that holds just the API key
     auto_delete = True                      # does the cloud delete a host by itself after `hours`? False: only labagent can, so say so
+    key_registry = True                     # does the account keep a list of SSH keys? False: the key is installed on each host when it is created
     warnings: List[str]
+
+    @classmethod
+    def extra_credentials(cls) -> Optional[str]:
+        """Where else this cloud could get a login than env_var, the credentials file and key_file (a service account file, a command line tool). None: nowhere."""
+        return None
 
     def offers(self, query: OfferQuery) -> List[Offer]:
         """Read only. Every shape that matches, cheapest first, one entry per region."""
@@ -433,8 +440,9 @@ class ShadeformProvider(Provider):
 
 
 from .lambda_cloud import LambdaProvider  # noqa: E402  (after the names it imports from this module exist)
+from .nebius import NebiusProvider  # noqa: E402
 
-PROVIDERS: Dict[str, Callable[[], Provider]] = {"shadeform": ShadeformProvider, "lambda": LambdaProvider}
+PROVIDERS: Dict[str, Callable[[], Provider]] = {"shadeform": ShadeformProvider, "lambda": LambdaProvider, "nebius": NebiusProvider}
 
 
 def make(provider_id: str) -> Provider:
@@ -456,6 +464,10 @@ def catalog() -> List[Dict[str, Any]]:
         env_var = getattr(what, "env_var", "")
         key_file = getattr(what, "key_file", "")
         key, source, warnings = find_secret(cid, env_var, key_file=key_file) if env_var else (None, None, [])
+        if not key and hasattr(what, "extra_credentials"):
+            extra = what.extra_credentials()
+            if extra:
+                key, source = extra, extra
         creds = {"configured": bool(key), "source": source, "env_var": env_var or None, "file": _shown(credentials_path()), "section": cid}
         if key_file:
             creds["key_file"] = _shown(keys_dir() / key_file)

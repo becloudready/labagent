@@ -129,7 +129,7 @@ def test_one_command_adds_the_same_key_to_every_cloud_with_a_key_set(both, capsy
     assert "PRIVATE" not in json.dumps(sent) and "secret" not in raw                               # the private half and the API keys stay out
     assert cli.main(argv) == 0                                                                     # again: one file, nothing added twice
     again = json.loads(capsys.readouterr().out)
-    assert again["key_file_created"] is False and [r["added_to_cloud"] for r in again["clouds"]] == [False, False]
+    assert again["key_file_created"] is False and [r["added_to_cloud"] for r in again["clouds"] if r["status"] == "ok"] == [False, False]
     assert len([c for c in sf.calls if c[1] == "/v1/sshkeys/add"]) == 1
 
 
@@ -160,7 +160,19 @@ def test_a_cloud_without_an_api_key_is_skipped_and_one_that_fails_does_not_stop_
     assert cli.main(["compute", "ssh-key-add", "--cloud", "all", "--name", "labagent", "--json"]) == 2
     doc = json.loads(capsys.readouterr().out)
     assert doc["status"] == "failed" and "lambda" in doc["error"]
-    assert {r["cloud"]: r["status"] for r in doc["clouds"]} == {"lambda": "failed", "shadeform": "ok"}
+    assert {r["cloud"]: r["status"] for r in doc["clouds"]} == {"lambda": "failed", "nebius": "skipped", "shadeform": "ok"}
+
+
+@needs_keygen
+def test_a_cloud_with_no_key_list_is_skipped_with_the_reason_whether_or_not_it_has_a_login(both, monkeypatch, capsys):
+    argv = ["compute", "ssh-key-add", "--cloud", "all", "--name", "labagent", "--json"]
+    assert cli.main(argv) == 0
+    row = {r["cloud"]: r for r in json.loads(capsys.readouterr().out)["clouds"]}["nebius"]
+    assert row["status"] == "skipped" and "NEBIUS_IAM_TOKEN" in row["error"]                      # no login: the usual "set the key" hint
+    monkeypatch.setenv("NEBIUS_IAM_TOKEN", "nebius-test-secret")
+    assert cli.main(argv) == 0
+    row = {r["cloud"]: r for r in json.loads(capsys.readouterr().out)["clouds"]}["nebius"]
+    assert row["status"] == "skipped" and "no key list" in row["error"] and "installed on each VM when it is created" in row["error"]
 
 
 @needs_keygen

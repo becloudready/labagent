@@ -36,7 +36,7 @@ By hand, the job, the `--config` file and the `--ruleset` file may be YAML inste
 }
 ```
 
-For `launch`, `secrets[]` holds one `ide_password` per learner, encrypted to `secrets_pubkey_pem` (also when the launch fails part way, so passwords already handed out are not lost). `summary.outputs` carries URLs and hosts only. When a `launch` fails, `summary.outputs` still carries what was learned before it failed (for gpu-notebooks, which SSH key was used and whether it matched, and `auto_delete`: `false` when the cloud, such as Lambda, will not delete the VM by itself, so only `destroy` stops the billing), and `summary.cleanup` says what was done about anything billable the launch had rented: `{"action": "deleted" | "kept" | "nothing" | "failed", "host_id": "...", "detail": "..."}`. A caller treats `failed` as an alarm: a VM may still be running.
+For `launch`, `secrets[]` holds one `ide_password` per learner, encrypted to `secrets_pubkey_pem` (also when the launch fails part way, so passwords already handed out are not lost). `summary.outputs` carries URLs and hosts only. When a `launch` fails, `summary.outputs` still carries what was learned before it failed (for gpu-notebooks, which SSH key was used and whether it matched, and `auto_delete`: `false` when the cloud, such as Lambda or Nebius, will not delete the VM by itself, so only `destroy` stops the billing), and `summary.cleanup` says what was done about anything billable the launch had rented: `{"action": "deleted" | "kept" | "nothing" | "failed", "host_id": "...", "detail": "..."}`. A caller treats `failed` as an alarm: a VM may still be running.
 
 Exit code: 0 ok, 1 partial (something is `pending` or `failed`: re-run), 2 failed (nothing was done or the input was refused).
 

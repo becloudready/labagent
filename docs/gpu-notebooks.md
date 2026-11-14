@@ -17,6 +17,8 @@ labagent destroy gpu-notebooks --name nvidia-h100-hackathon
 
 On Lambda Cloud instead (key in `LAMBDA_API_KEY`, `~/.labagent/credentials` under `[lambda]`, or `~/.labagent/keys/lambda_api_key`; see [compute.md](compute.md#lambda)): `--param cloud=lambda --param region=us-west-3`, or `--param location=north-america` to take the cheapest. **Lambda never deletes a VM for you:** it bills until `destroy`.
 
+On Nebius (a project of yours in one region, `NEBIUS_PROJECT_ID`, and a token, a service account or the `nebius` CLI; see [compute.md](compute.md#nebius)): `--param cloud=nebius` (the region is the project's). **Nebius never deletes a VM for you either**, and there is no SSH key list: the key is installed on the VM at creation from your private key file.
+
 The same run from a file ([launch files](launch-files.md)): `labagent launch -f hackathon.yaml`, and `labagent destroy -f hackathon.yaml` to stop it.
 
 Leave `vendor` and `region` out and the launch stops with the five cheapest available offers for your `instance_type`. Or set `location` instead (`any`, `europe`, `north-america`, `asia-pacific`) and labagent picks the cheapest available machine of that `instance_type` there, with the newest CUDA image. It keeps that pick in the pack's state, so a rerun never switches machine.
@@ -55,7 +57,7 @@ In a terminal the run is laid out for people: a banner, numbered steps with a li
 ## What it does
 
 1. **preflight**: checks the offer and prints the hourly price. Creates nothing.
-2. **host**: creates the VM and waits until it is active. Shadeform deletes it after `hours` whatever happens to this tool. Lambda has no such setting: there the VM bills until `destroy`, and the preflight, the report and `summary.outputs.auto_delete` (`false`) all say so.
+2. **host**: creates the VM and waits until it is active. Shadeform deletes it after `hours` whatever happens to this tool. Lambda and Nebius have no such setting: there the VM bills until `destroy`, and the preflight, the report and `summary.outputs.auto_delete` (`false`) all say so.
 3. **setup**: logs in over ssh, installs the lab installer (`/opt/labagent/start-labs.sh`), enables MIG, creates the slices.
 4. **access**: sets the host name and creates the shared login user (below).
 5. **labs**: one container per slice (`NVIDIA_VISIBLE_DEVICES=MIG-<uuid>`), each with its own random token, CPU and memory limits, and JupyterLab under `/lab-NN`. Caddy serves them on `https://<ip>.sslip.io` with a real certificate. A systemd unit rebuilds the slices and containers at boot.
@@ -66,15 +68,15 @@ In a terminal the run is laid out for people: a banner, numbered steps with a li
 
 | Param | Meaning |
 |---|---|
-| `cloud` | Whose API to call: `shadeform` (default) or `lambda` |
+| `cloud` | Whose API to call: `shadeform` (default), `lambda` or `nebius` |
 | `instance_type` | The cloud's shape: `H100` is one GPU, `H100x8` is eight |
 | `location` | `any`, `europe`, `north-america` or `asia-pacific`. Used only when `vendor` and `region` are empty: picks the cheapest available machine of `instance_type` in that area (never a container) and the newest CUDA `os`. Fails with a plain message when nothing is available there |
 | `max_price` | Dollars per hour, default 0 (no limit). Used with `location`: dearer offers are ignored, and the launch fails plainly if none is left |
 | `show_passwords` | `yes` (default) or `no`. `no` keeps every lab token and the shell password out of the printed report and the card. They stay in the credentials file, and a job with a public key gets the tokens back sealed. The console always sets `no` |
-| `vendor`, `region`, `os`, `ssh_key_id` | `vendor` is Shadeform only: the datacenter company behind the offer (`scaleway`, `massedcompute`). `region` is that vendor's region on Shadeform, and e.g. `us-west-3` on Lambda. `os` must be one the offer lists (on Lambda an image family such as `lambda-stack-24-04`, the default). `ssh_key_id` is required, see [The SSH key](#the-ssh-key) |
+| `vendor`, `region`, `os`, `ssh_key_id` | `vendor` is Shadeform only: the datacenter company behind the offer (`scaleway`, `massedcompute`). `region` is that vendor's region on Shadeform, e.g. `us-west-3` on Lambda, and on Nebius the region of the project (e.g. `eu-north1`). `os` must be one the offer lists (on Lambda an image family such as `lambda-stack-24-04`, the default). `ssh_key_id` is optional, see [The SSH key](#the-ssh-key); Nebius has no key list, so it is ignored there |
 | `ssh_key_file` | The private key to log in with. Default: the `LABAGENT_SSH_KEY_FILE` environment variable, then `~/.labagent/keys/labagent_ed25519` if it exists. Its public half must be in the cloud account (found by fingerprint, or checked against `ssh_key_id` when you set that) before anything is rented. A remote job cannot set it |
 | `keep_on_failure` | `no` (default) or `yes`. A launch that fails deletes the VM it rented (see [Cost and safety](#cost-and-safety)). `yes` leaves it running so you can look inside; you pay until `destroy` or `hours`. A remote job cannot set it |
-| `hours` | Shadeform deletes the VM after this long (1 to 72, default 4). Lambda cannot: there it only sets the planned end shown in the report, and you must run `destroy` |
+| `hours` | Shadeform deletes the VM after this long (1 to 72, default 4). Lambda and Nebius cannot: there it only sets the planned end shown in the report, and you must run `destroy` |
 | `mode` | `mig` (default): one hardware-isolated MIG slice per lab, on H100, H200 and A100. `shared`: labs share the whole GPU with no isolation, for GPUs without MIG such as the RTX 5090. See [GPUs](#gpus) |
 | `mig_profile` | `mig` only. Slice size. `auto` (default) is the smallest the GPU offers: `1g.10gb` on H100 and A100 80GB, `1g.5gb` on A100 40GB. Others: `1g.20gb` (4 per 80GB GPU), `2g.20gb` (3), `3g.40gb` (2) |
 | `labs` | How many labs to start. `mig`: 0 = one per slice. `shared`: required. At most 99 |
@@ -113,11 +115,13 @@ The user gets a random 20 character password (in `<name>-ssh-login.csv`, 0600, a
 
 ## Cost and safety
 
-`launch` starts a billed VM and prints the hourly price first. **If a launch fails after the VM exists** (it never becomes active, ssh cannot log in, MIG or a lab fails, or you press Ctrl-C), labagent deletes that VM before it returns, and says so in `summary.cleanup`: `{"action": "deleted", "host_id": "..."}`. If the delete itself fails it says `"action": "failed"` and how to delete the VM by hand, and keeps the state file so `destroy` still works. Two cases are left running on purpose: `keep_on_failure=yes`, and a lab that was already working before a failed rerun (`"action": "kept"`). A killed process (SIGKILL, power loss) cannot clean up: on Shadeform the cloud still deletes the VM after `hours`, on Lambda nothing does, so check the Lambda console after a crash. `destroy` deletes only the VM this launch created: the id in the state file, or after a crash a VM with exactly this name and tag, never by prefix. Tokens go to the VM on ssh stdin, never on a command line, and are not in state or the result JSON.
+`launch` starts a billed VM and prints the hourly price first. **If a launch fails after the VM exists** (it never becomes active, ssh cannot log in, MIG or a lab fails, or you press Ctrl-C), labagent deletes that VM before it returns, and says so in `summary.cleanup`: `{"action": "deleted", "host_id": "..."}`. If the delete itself fails it says `"action": "failed"` and how to delete the VM by hand, and keeps the state file so `destroy` still works. Two cases are left running on purpose: `keep_on_failure=yes`, and a lab that was already working before a failed rerun (`"action": "kept"`). A killed process (SIGKILL, power loss) cannot clean up: on Shadeform the cloud still deletes the VM after `hours`, on Lambda and Nebius nothing does, so check their console after a crash. `destroy` deletes only the VM this launch created: the id in the state file, or after a crash a VM with exactly this name and tag, never by prefix. Tokens go to the VM on ssh stdin, never on a command line, and are not in state or the result JSON.
 
 ## Verified on a real VM (2026-11-13)
 
 One H100 PCIe on Scaleway through Shadeform (`ubuntu24.04_cuda13.0_shade_os`, driver 580, Docker and the NVIDIA container toolkit preinstalled): launch, 7 slices, 7 JupyterLab containers behind a Let's Encrypt certificate, token enforcement, password login for the shared user, the prompt, and destroy. Seven PyTorch containers on seven slices ran at once with no slowdown from each other.
+
+**Nebius is not verified on a real account.** The provider was written from Nebius's published OpenAPI file and docs, with no Nebius credentials: not one call has reached the real API. Its tests run against a stand-in. Open, besides everything listed for Lambda below: the exact JSON the create call accepts (the shape follows the OpenAPI file and the `nebius compute instance create` flags), that the `ubuntu24.04-cuda13.0` image has Docker and the NVIDIA container runtime (the installer stops with a plain message if not), that MIG can be enabled inside the VM, and that the list prices in [compute.md](compute.md#nebius) are still Nebius's prices.
 
 **Lambda Cloud is not verified on a real VM.** Its API calls were checked against Lambda's published API description and read-only calls to a real account (offers, SSH keys, instances, firewall rules), and the provider and the pack on top of it are tested against a stand-in for the API. Nobody has yet launched a real Lambda VM with this pack, so these are open: that Docker and its NVIDIA runtime are on the Lambda Stack image (the installer stops with a plain message if not, and the failed launch deletes the VM), that MIG can be enabled inside a Lambda VM, and that the 80 and 443 firewall ruleset lets Let's Encrypt and the labs through.
 

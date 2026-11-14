@@ -295,6 +295,9 @@ def _key_add_all(args, s: Style):
     rows: List[Dict[str, Any]] = []
     for c in providers.catalog():
         row: Dict[str, Any] = {"cloud": c["id"], "cloud_title": c["title"]}
+        if c["credentials"]["configured"] and "ssh_keys" not in c["capabilities"]:
+            rows.append({**row, "status": "skipped", "error": "nothing to add: this cloud has no key list, so the key is installed on each VM when it is created"})
+            continue
         if c not in configured:
             rows.append({**row, "status": "skipped", "error": f"no API key: set {c['credentials']['env_var']} or [{c['id']}] in {c['credentials']['file']}"})
             continue
