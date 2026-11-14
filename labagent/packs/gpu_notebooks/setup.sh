@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # labagent gpu-notebooks: runs ON the GPU VM, as root. The pack installs it as /opt/labagent/start-labs.sh, and a systemd unit
-# runs `start-labs.sh all` at every boot: MIG slices do not survive a reboot on Hopper GPUs, so they are rebuilt each time.
+# runs `start-labs.sh all` at every boot: MIG slices do not survive a reboot (H100, A100), so they are rebuilt each time.
 #
-# Subcommands: partition | access | labs | proxy | verify | install_service | all. Each one is safe to run again.
+# Subcommands: partition | devices | access | labs | proxy | verify | install_service | all. Each one is safe to run again.
 # Secrets: the lab tokens live in $CSV (0600). They reach Docker through the environment, never on a command line,
 # and this script never prints them. The shared login's password arrives on stdin (`access`) and is never printed either.
 set -euo pipefail
@@ -10,7 +10,7 @@ set -euo pipefail
 ENV_FILE=/opt/labagent/labs.env
 # shellcheck disable=SC1090
 [ -f "$ENV_FILE" ] && . "$ENV_FILE"
-: "${PROFILE:=1g.10gb}" "${IMAGE:=quay.io/jupyter/pytorch-notebook:cuda12-latest}" "${TLS:=letsencrypt}" "${LABS_DIR:=/root/labs}" "${DOMAIN:=}"
+: "${MODE:=mig}" "${PROFILE:=auto}" "${IMAGE:=quay.io/jupyter/pytorch-notebook:cuda12-latest}" "${TLS:=letsencrypt}" "${LABS_DIR:=/root/labs}" "${DOMAIN:=}"
 CSV="$LABS_DIR/credentials.csv"
 PROXY=labs-proxy
 CADDYFILE=/opt/labagent/Caddyfile
@@ -19,6 +19,9 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 slices() { nvidia-smi -L | grep -o 'MIG-[0-9a-f-]*' || true; }
 lab_containers() { docker ps -aq --filter 'name=^lab-[0-9]+$'; }
 gpu_indexes() { nvidia-smi --query-gpu=index --format=csv,noheader; }
+gpu_uuids() { nvidia-smi --query-gpu=uuid --format=csv,noheader; }
+# What a lab can be given: a MIG slice each, or (mode=shared) a whole GPU that other labs share.
+devices() { if [ "$MODE" = "shared" ]; then gpu_uuids; else slices; fi; }
 have_image() { docker image inspect "$1" >/dev/null 2>&1 || docker pull -q "$1" >/dev/null || die "cannot pull $1"; }
 
 wait_gpu() {
@@ -27,17 +30,67 @@ wait_gpu() {
   die "nvidia-smi does not answer: is the NVIDIA driver installed?"
 }
 
+mig_mode() { nvidia-smi -i "$1" --query-gpu="mig.mode.$2" --format=csv,noheader; }       # $2 = current | pending
+
+# Switch MIG on for every GPU. Prints the indexes that still need a GPU reset or a reboot first (A100: the mode is "pending").
+enable_mig() {
+  local g
+  for g in $(gpu_indexes); do
+    if [ "$(mig_mode "$g" current)" != "Enabled" ]; then
+      case "$(mig_mode "$g" current)" in
+        *N/A*) die "GPU $g ($(nvidia-smi -i "$g" --query-gpu=name --format=csv,noheader)) has no MIG, so it cannot be split into isolated slices. To share it between labs with no isolation, use mode=shared and labs=N" ;;
+      esac
+      nvidia-smi -i "$g" -mig 1 >/dev/null 2>&1 || true
+      if [ "$(mig_mode "$g" current)" != "Enabled" ]; then
+        [ "$(mig_mode "$g" pending)" = "Enabled" ] || die "cannot enable MIG on GPU $g: this GPU or VM does not allow it"
+        echo "$g"
+      fi
+    fi
+  done
+}
+
+# PROFILE=auto means the smallest slice with one compute unit that this GPU offers: 1g.5gb on an A100 40GB, 1g.10gb on an
+# H100 or A100 80GB, 1g.18gb on an H200. Needs MIG on, because that is when the driver lists the profiles.
+resolve_profile() {
+  [ "$PROFILE" = "auto" ] || return 0
+  local best
+  best=$(nvidia-smi mig -lgip 2>/dev/null | grep -o 'MIG 1g\.[0-9]*gb ' | awk '{print $2}' | sort -u \
+         | sed 's/^1g\.\([0-9]*\)gb$/\1 &/' | sort -n | awk 'NR==1{print $2}')
+  [ -n "$best" ] || die "cannot tell which MIG profile this GPU offers (nvidia-smi mig -lgip)"
+  PROFILE=$best
+}
+
 partition() {
   wait_gpu
   command -v docker >/dev/null || die "docker is not installed on this VM"
   docker info 2>/dev/null | grep -qi nvidia || die "the NVIDIA container runtime is not set up in Docker"
-  local g _ have wrong
-  for g in $(gpu_indexes); do
-    if [ "$(nvidia-smi -i "$g" --query-gpu=mig.mode.current --format=csv,noheader)" != "Enabled" ]; then
-      nvidia-smi -i "$g" -mig 1 >/dev/null || die "cannot enable MIG on GPU $g: this VM may not allow it"
-    fi
-  done
-  have=$(slices | wc -l)
+  local g _ have wrong pending
+  if [ "$MODE" = "shared" ]; then
+    # No slicing: every lab gets a whole GPU and they share it. MIG must be off, or a whole GPU is not usable from a container.
+    for g in $(gpu_indexes); do
+      [ "$(mig_mode "$g" current)" != "Enabled" ] || die "MIG is on for GPU $g, but mode=shared needs it off: nvidia-smi -i $g -mig 0"
+    done
+    echo "SLICES=0"
+    echo "PROFILE=shared"
+    echo "GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -1)"
+    echo "GPU_COUNT=$(gpu_indexes | wc -l | tr -d ' ')"
+    return 0
+  fi
+  pending=$(enable_mig)
+  if [ -n "$pending" ]; then
+    # An A100 turns MIG on only after a GPU reset. A VM often cannot reset its GPU: then a reboot does it (the pack reboots once).
+    for g in $pending; do nvidia-smi --gpu-reset -i "$g" >/dev/null 2>&1 || true; done
+    wait_gpu
+    for g in $pending; do
+      if [ "$(mig_mode "$g" current)" != "Enabled" ]; then
+        echo "NEEDS_REBOOT=1"
+        echo "ERROR: MIG is switched on for GPU $g but takes effect only after the VM reboots" >&2
+        exit 75
+      fi
+    done
+  fi
+  resolve_profile
+  have=$(slices | wc -l | tr -d ' ')
   wrong=$(nvidia-smi -L | grep 'MIG ' | grep -vc "MIG $PROFILE " || true)
   if [ "$have" -eq 0 ] || [ "$wrong" -gt 0 ]; then
     lab_containers | xargs -r docker rm -f >/dev/null
@@ -47,12 +100,12 @@ partition() {
       for _ in $(seq 1 16); do nvidia-smi mig -i "$g" -cgi "$PROFILE" -C >/dev/null 2>&1 || break; done
     done
   fi
-  have=$(slices | wc -l)
+  have=$(slices | wc -l | tr -d ' ')
   [ "$have" -gt 0 ] || die "no MIG slice of profile $PROFILE could be created (valid profiles: nvidia-smi mig -lgip)"
   echo "SLICES=$have"
   echo "PROFILE=$PROFILE"
   echo "GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -1)"
-  echo "GPU_COUNT=$(gpu_indexes | wc -l)"
+  echo "GPU_COUNT=$(gpu_indexes | wc -l | tr -d ' ')"
 }
 
 access() {
@@ -120,16 +173,17 @@ RC
 labs() {
   [ -s "$CSV" ] || die "missing $CSV"
   local uuids n cpus mem lab port token idx uuid want have_env
-  mapfile -t uuids < <(slices)
+  mapfile -t uuids < <(devices)
   n=$(( $(wc -l < "$CSV") - 1 ))
-  [ "${#uuids[@]}" -ge "$n" ] || die "$n labs need $n MIG slices, found ${#uuids[@]}"
+  [ "${#uuids[@]}" -gt 0 ] || die "no GPU or MIG slice to give the labs"
+  [ "$MODE" = "shared" ] || [ "${#uuids[@]}" -ge "$n" ] || die "$n labs need $n MIG slices, found ${#uuids[@]}"
   have_image "$IMAGE"
   cpus=$(awk -v c="$(nproc)" -v n="$n" 'BEGIN { x = 2 * c / n; if (x < 1) x = 1; printf "%.1f", x }')
   mem=$(awk -v n="$n" '/MemTotal/ { x = int($2 / 1048576 * 0.8 / n); if (x < 2) x = 2; print x }' /proc/meminfo)
   idx=0
   while IFS=, read -r lab port token; do
     [ "$lab" = "lab" ] && continue
-    uuid="${uuids[$idx]}"
+    uuid="${uuids[$((idx % ${#uuids[@]}))]}"      # shared mode: labs take the GPUs in turn
     idx=$((idx + 1))
     want="$uuid|$token"
     if docker inspect "$lab" >/dev/null 2>&1; then
@@ -209,7 +263,7 @@ verify() {
 install_service() {
   cat > /etc/systemd/system/labagent-labs.service <<'UNIT'
 [Unit]
-Description=labagent GPU labs: MIG slices and JupyterLab containers
+Description=labagent GPU labs: GPU slices and JupyterLab containers
 After=docker.service network-online.target
 Requires=docker.service
 
@@ -227,7 +281,7 @@ UNIT
 }
 
 case "${1:-}" in
-  partition | access | labs | proxy | verify | install_service) "$1" ;;
+  partition | devices | access | labs | proxy | verify | install_service) "$1" ;;
   all) partition >/dev/null; labs; proxy ;;
   *) die "usage: $0 partition|access|labs|proxy|verify|install_service|all" ;;
 esac

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -38,6 +39,7 @@ class PackContext:
     mem: Dict[str, Any] = field(default_factory=dict)        # in-memory only (tokens, connections)
     services: Dict[str, Any] = field(default_factory=dict)   # injected: dbx, pg_connect, ... (tests swap these)
     log: Callable[[str], None] = lambda m: print(m, file=sys.stderr)
+    ui: Any = None            # a labagent.console.Console when a person is watching a terminal, else None: print plain text
 
 
 @dataclass
@@ -126,7 +128,8 @@ def _seal_passwords(env: Envelope, ctx: PackContext, pubkey_pem: Optional[str]) 
 
 
 def run_pack(pack: Pack, action: str, name: str, given: Dict[str, Any], services: Optional[Dict[str, Any]] = None,
-             dry_run: bool = False, log: Optional[Callable[[str], None]] = None, pubkey_pem: Optional[str] = None) -> Envelope:
+             dry_run: bool = False, log: Optional[Callable[[str], None]] = None, pubkey_pem: Optional[str] = None,
+             ui: Any = None) -> Envelope:
     env = Envelope(command=f"{action}:{pack.id}", mode="dry-run" if dry_run else "apply", cohort=name)
     try:
         params = pack.resolve(given)
@@ -136,26 +139,41 @@ def run_pack(pack: Pack, action: str, name: str, given: Dict[str, Any], services
                       services=services if services is not None else pack.services(params.get("profile")))
     if log:
         ctx.log = log
+    ctx.ui = ui
     steps = pack.deploy_steps(ctx) if action == "launch" else pack.destroy_steps(ctx)
-    for step in steps:
+    for n, step in enumerate(steps, 1):
         item = {"step": step.id, "title": step.title, "state": "planned"}
         env.items.append(item)
         if dry_run:
+            if ui:
+                ui.step_planned(n, len(steps), step.id, step.title)
             continue
+        started = time.monotonic()
         try:
             if step.check and step.check(ctx):
                 item["state"] = "skipped"
+                if ui:
+                    ui.step_skipped(n, len(steps), step.id, step.title)
                 continue
-            ctx.log(f"[{step.id}] {step.title}")
+            if ui:
+                ui.step_start(n, len(steps), step.id, step.title)
+            else:
+                ctx.log(f"[{step.id}] {step.title}")
             out = step.run(ctx) or {}
             ctx.state.update(out)
             save_state(pack.id, name, ctx.state)
             item["state"] = "done"
+            if ui:
+                ui.step_done(time.monotonic() - started)
         except PackError as e:
             item.update(state="failed", error=str(e)[:600])
+            if ui:
+                ui.step_failed(time.monotonic() - started)
             break
         except Exception as e:  # unexpected: class name only, never the message (could carry a token)
             item.update(state="failed", error=type(e).__name__)
+            if ui:
+                ui.step_failed(time.monotonic() - started)
             break
     if dry_run:
         env.summary = {"steps": len(env.items)}

@@ -142,12 +142,33 @@ def test_the_plain_command_line_still_works(home, capsys):
     assert run_cli(capsys, "launch", "hello", "--name", "x", "--param", "who=cli")[0] == 0 and SEEN[0][1]["who"] == "cli"
 
 
-# ---- the shipped example ----
+# ---- a typical gpu-notebooks file ----
 
-def test_the_example_file_only_uses_parameters_the_real_pack_has(monkeypatch):
+TYPICAL = """
+description: JupyterLab per H100 slice for a two-hour workshop
+pack: gpu-notebooks
+name: nvidia-h100-workshop
+params:
+  cloud: shadeform
+  vendor: scaleway
+  region: paris-france-1
+  os: ubuntu24.04_cuda13.0_shade_os
+  ssh_key_id: ${SHADEFORM_SSH_KEY_ID}
+  hours: 4
+  mode: mig
+  profile: auto
+  login_user: labagent
+  login_sudo: false
+"""
+
+
+def test_a_typical_file_only_uses_parameters_the_real_pack_has(monkeypatch, tmp_path):
     monkeypatch.setenv("SHADEFORM_SSH_KEY_ID", "key-1")
     from labagent.packs.gpu_notebooks.pack import GpuNotebooks
-    s = spec.load(str(Path(__file__).parent.parent / "docs" / "examples" / "gpu-notebooks-hackathon.yaml"))
+    f = tmp_path / "workshop.yaml"
+    f.write_text(TYPICAL, encoding="utf-8")
+    s = spec.load(str(f))
     assert s["pack"] == "gpu-notebooks" and s["name"] == "nvidia-h100-workshop"
+    assert s["params"]["ssh_key_id"] == "key-1"
     assert set(s["params"]) <= {p.name for p in GpuNotebooks().params}
     assert GpuNotebooks().resolve(s["params"])["login_sudo"] == "false"

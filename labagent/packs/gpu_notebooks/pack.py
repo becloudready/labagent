@@ -1,4 +1,5 @@
 """gpu-notebooks: one JupyterLab per slice of a rented GPU (NVIDIA MIG), each in its own Docker container.
+GPUs without MIG (GeForce, such as the RTX 5090) can instead be shared by several labs: mode=shared.
 
 `launch` rents a GPU VM, splits every GPU into MIG slices, starts one container per slice with its own JupyterLab and random
 token, puts an HTTPS front door in front, checks every lab, and prints a URL and login for each. The VM deletes itself after
@@ -32,6 +33,9 @@ WAIT_SSH_S = 300
 WAIT_PUBLIC_S = 240      # certificate issuance for the HTTPS name
 POLL_S = 10
 MAX_LABS = 99            # lab names are lab-01 .. lab-99
+REBOOT_RC = 75           # the VM script: MIG is on but needs a reboot to take effect (A100)
+REBOOT_WAIT_S = 600
+NO_MIG = ("RTX4090", "RTX5090")      # GeForce cards: no MIG, so mode=mig can never work. Checked before anything is rented
 INSTALL_DIR = "/opt/labagent"
 SCRIPT = f"{INSTALL_DIR}/start-labs.sh"
 
@@ -119,8 +123,11 @@ class GpuNotebooks(Pack):
         Param("ssh_key_id", None, "shadeform: id of an SSH key already added to your account (default: your account's default key)"),
         Param("ssh_key_file", None, "Private key file that matches ssh_key_id (default: whatever ssh finds, e.g. ~/.ssh/id_ed25519)"),
         Param("hours", 4, "The cloud deletes the VM after this many hours (1 to 72), whatever happens to this tool"),
-        Param("profile", "1g.10gb", "MIG slice size: 1g.10gb (7 per H100), 1g.20gb (4), 2g.20gb (3), 3g.40gb (2)"),
-        Param("labs", 0, "How many labs to start (0 = one per slice, at most 99)"),
+        Param("mode", "mig", "mig: one hardware-isolated MIG slice per lab (H100, H200, A100). "
+                             "shared: labs share the whole GPU with no isolation, for GPUs without MIG such as the RTX 5090 (needs labs)"),
+        Param("profile", "auto", "mig only. MIG slice size. auto = the smallest the GPU offers (1g.10gb on H100 and A100 80GB, 1g.5gb on A100 40GB). "
+                                 "Others: 1g.20gb, 2g.20gb, 3g.40gb"),
+        Param("labs", 0, "How many labs to start (mig: 0 = one per slice. shared: required, spread over the GPUs). At most 99)"),
         Param("image", "quay.io/jupyter/pytorch-notebook:cuda12-latest", "Docker image for each lab. One container per slice"),
         Param("tls", "letsencrypt", "letsencrypt (real certificate on <ip>.sslip.io) | internal (self-signed, browser warning) | none (plain http)"),
         Param("domain", None, "Name the labs are served on (default: <ip>.sslip.io). Its DNS must point at the VM"),
@@ -128,7 +135,7 @@ class GpuNotebooks(Pack):
         Param("login_user", "labagent", "A user to share with students: ssh with a password. Empty = do not create one"),
         Param("login_sudo", True, "Give login_user sudo and docker. WARNING: that is root, so one student can read every lab's token and stop other labs"),
     ]
-    output_keys = ("cloud", "host_name", "host_id", "ip", "ssh_user", "ssh_port", "hourly_cents", "expires_utc", "gpu", "profile", "slices",
+    output_keys = ("cloud", "host_name", "host_id", "ip", "ssh_user", "ssh_port", "hourly_cents", "expires_utc", "gpu", "mode", "profile", "slices",
                    "domain", "base_url", "credentials_file", "public_ok", "hostname", "login_user", "login_file")
 
     def services(self, profile):
@@ -155,8 +162,10 @@ class GpuNotebooks(Pack):
 
     def _check_lab_params(self, ctx: PackContext) -> int:
         p = ctx.params
+        if p["mode"] not in ("mig", "shared"):
+            raise PackError("mode must be mig or shared")
         if not re.fullmatch(r"[0-9a-z.+]+", str(p["profile"])):
-            raise PackError("profile must look like 1g.10gb")
+            raise PackError("profile must be auto, or look like 1g.10gb")
         if not re.fullmatch(r"[A-Za-z0-9._/:@-]+", str(p["image"])):
             raise PackError("image must be a Docker image name such as quay.io/jupyter/pytorch-notebook:cuda12-latest")
         if p["tls"] not in ("letsencrypt", "internal", "none"):
@@ -173,6 +182,8 @@ class GpuNotebooks(Pack):
             raise PackError("labs must be a whole number")
         if not 0 <= n <= MAX_LABS:
             raise PackError(f"labs must be between 0 and {MAX_LABS}")
+        if p["mode"] == "shared" and n < 1:
+            raise PackError("mode=shared needs labs=N: how many labs share the GPU. Each one sees all of its memory, so keep it small, e.g. 4")
         return n
 
     def _provider(self, ctx: PackContext):
@@ -192,29 +203,75 @@ class GpuNotebooks(Pack):
             text = text.replace(t, "***")
         return text
 
+    def _failure(self, ctx: PackContext, what: str, out: str, err: str) -> PackError:
+        lines = [l for l in (err or "").splitlines() if l.startswith("ERROR:")] or (err or out or "").strip().splitlines()[-3:]
+        return PackError(self._scrub(ctx, f"{what} failed on the VM: {' | '.join(lines)[:400]}"))
+
     def _remote(self, ctx: PackContext, runner, command: str, what: str, stdin: Optional[str] = None, timeout: int = 900) -> str:
         rc, out, err = runner.run(command, stdin=stdin, timeout=timeout)
         if rc != 0:
-            lines = [l for l in (err or "").splitlines() if l.startswith("ERROR:")] or (err or out or "").strip().splitlines()[-3:]
-            raise PackError(self._scrub(ctx, f"{what} failed on the VM: {' | '.join(lines)[:400]}"))
+            raise self._failure(ctx, what, out, err)
         return out
+
+    def _partition(self, ctx: PackContext, runner) -> str:
+        """Split the GPUs. An A100 can need a reboot before MIG turns on: do that once, wait for the VM, and try again."""
+        what, cmd = "splitting the GPUs into MIG slices", f"sudo {SCRIPT} partition"
+        rc, out, err = runner.run(cmd, timeout=600)
+        if rc == REBOOT_RC and "NEEDS_REBOOT=1" in out:
+            ctx.log("  MIG takes effect only after a reboot on this GPU: rebooting the VM once (about 2 minutes)")
+            self._reboot(ctx, runner)
+            rc, out, err = runner.run(cmd, timeout=600)
+            if rc == REBOOT_RC:
+                raise PackError("MIG did not turn on after a reboot: this GPU or VM does not allow it. Destroy it and try another offer")
+        if rc != 0:
+            raise self._failure(ctx, what, out, err)
+        return out
+
+    def _reboot(self, ctx: PackContext, runner) -> None:
+        sleep = ctx.services.get("sleep", time.sleep)
+        clock = ctx.services.get("clock", time.monotonic)
+        probe = "cat /proc/sys/kernel/random/boot_id"
+        rc, before, _ = runner.run(probe, timeout=60)
+        if rc != 0 or not before.strip():
+            raise PackError("cannot read the VM's boot id, so a reboot could not be confirmed")
+        rc, _, err = runner.run("sudo sh -c 'nohup sh -c \"sleep 2; systemctl reboot\" >/dev/null 2>&1 &'", timeout=60)
+        if rc != 0:
+            raise PackError(f"cannot reboot the VM: {(err or '').strip()[:200]}")
+        deadline = clock() + REBOOT_WAIT_S
+        while True:
+            sleep(POLL_S)
+            rc, now, _ = runner.run(probe, timeout=60)
+            if rc == 0 and now.strip() and now.strip() != before.strip():
+                return
+            if clock() > deadline:
+                raise PackError(f"the VM did not come back within {REBOOT_WAIT_S // 60} minutes after the reboot")
 
     # ---- launch ----
     def deploy_steps(self, ctx: PackContext) -> List[Step]:
+        shared = ctx.params.get("mode") == "shared"
         return [Step("preflight", "Check the offer (read only, nothing is created)", self._preflight, check=lambda c: bool(c.state.get("host_id"))),
                 Step("host", "Create the GPU VM and wait until it is active", self._host, check=self._host_ready),
-                Step("setup", "Install the lab installer on the VM and split the GPUs into MIG slices", self._setup),
+                Step("setup", "Install the lab installer on the VM (no MIG: the labs will share the GPU)" if shared
+                     else "Install the lab installer on the VM and split the GPUs into MIG slices", self._setup),
                 Step("access", "Set the host name and create the shared login user", self._access),
-                Step("labs", "Start one JupyterLab container per slice, and the HTTPS front door", self._labs),
-                Step("verify", "Check every lab: it answers, needs its token, and sees only its own slice", self._verify),
+                Step("labs", "Start the JupyterLab containers, and the HTTPS front door" if shared
+                     else "Start one JupyterLab container per slice, and the HTTPS front door", self._labs),
+                Step("verify", "Check every lab: it answers, needs its token, and sees the GPU" if shared
+                     else "Check every lab: it answers, needs its token, and sees only its own slice", self._verify),
                 Step("report", "Print the URL and login of every lab", self._report)]
 
     def _preflight(self, ctx: PackContext):
         spec = self._spec(ctx)
         self._check_lab_params(ctx)
         info = self._provider(ctx).validate(spec)
+        if ctx.params["mode"] == "mig" and info.get("gpu_type") in NO_MIG:
+            raise PackError(f"{info['gpu_type']} has no MIG, so it cannot be split into isolated slices. To put several labs on it anyway, "
+                            "with no isolation between them, set mode=shared and labs=N")
         ctx.log(f"  {ctx.params['cloud']}: {spec.instance_type} from {spec.vendor} in {spec.region} at ${info['hourly_cents'] / 100:.2f}/h, "
                 f"deleted by the cloud after {spec.hours} h")
+        if ctx.params["mode"] == "shared":
+            ctx.log(f"  warning: shared mode. {ctx.params['labs']} labs will share each GPU's memory with NO isolation: one lab can use it all "
+                    "and make the others fail with out-of-memory errors")
         return {"cloud": ctx.params["cloud"], "host_name": spec.name, "hourly_cents": info["hourly_cents"]}
 
     def _host_ready(self, ctx: PackContext) -> bool:
@@ -279,19 +336,24 @@ class GpuNotebooks(Pack):
         home = self._remote(ctx, runner, "echo $HOME", "reading the home directory").strip()
         domain = p["domain"] or default_domain(ctx.state["ip"])
         hostname = p["hostname"] or default_hostname(ctx.name)
-        env = "".join(f"{k}='{v}'\n" for k, v in (("PROFILE", p["profile"]), ("IMAGE", p["image"]), ("TLS", p["tls"]), ("DOMAIN", domain),
+        env = "".join(f"{k}='{v}'\n" for k, v in (("MODE", p["mode"]), ("PROFILE", p["profile"]), ("IMAGE", p["image"]), ("TLS", p["tls"]), ("DOMAIN", domain),
                                                    ("LABS_DIR", f"{home}/labs"), ("LAB_HOSTNAME", hostname), ("LOGIN_USER", p["login_user"] or ""),
                                                    ("LOGIN_SUDO", "yes" if flag(p["login_sudo"]) else "no")))
         self._remote(ctx, runner, f"sudo install -d -m 755 {INSTALL_DIR} && sudo tee {INSTALL_DIR}/labs.env >/dev/null", "writing the settings", stdin=env)
         self._remote(ctx, runner, f"sudo tee {SCRIPT} >/dev/null && sudo chmod 755 {SCRIPT}", "installing the lab installer", stdin=setup_script())
-        out = self._remote(ctx, runner, f"sudo {SCRIPT} partition", "splitting the GPUs into MIG slices", timeout=600)
+        out = self._partition(ctx, runner)
         facts = dict(l.split("=", 1) for l in out.splitlines() if re.fullmatch(r"[A-Z_]+=.*", l))
         slices = int(facts.get("SLICES", "0"))
-        if slices < 1:
-            raise PackError("the VM reports no MIG slices")
-        count = min(slices, wanted or MAX_LABS, MAX_LABS)
-        ctx.log(f"  {slices} slices of {facts.get('PROFILE')} on {facts.get('GPU_COUNT', '?')} x {facts.get('GPU_NAME', 'GPU')}: starting {count} labs")
-        return {"slices": slices, "lab_count": count, "gpu": facts.get("GPU_NAME", ""), "profile": facts.get("PROFILE", p["profile"]),
+        if p["mode"] == "shared":
+            count = wanted
+            ctx.log(f"  {count} labs sharing {facts.get('GPU_COUNT', '?')} x {facts.get('GPU_NAME', 'GPU')}, no isolation between them")
+        else:
+            if slices < 1:
+                raise PackError("the VM reports no MIG slices")
+            count = min(slices, wanted or MAX_LABS, MAX_LABS)
+            ctx.log(f"  {slices} slices of {facts.get('PROFILE')} on {facts.get('GPU_COUNT', '?')} x {facts.get('GPU_NAME', 'GPU')}: starting {count} labs")
+        return {"slices": slices, "lab_count": count, "gpu": facts.get("GPU_NAME", ""), "mode": p["mode"],
+                "profile": facts.get("PROFILE", p["profile"]),
                 "domain": domain, "remote_home": home, "hostname": hostname}
 
     def _access(self, ctx: PackContext):
@@ -379,10 +441,11 @@ class GpuNotebooks(Pack):
             elif tok != "200":
                 bad.append(f"{n}: its own token is refused (HTTP {tok})")
             elif not gpu.startswith("1 "):
-                bad.append(f"{n}: sees '{gpu[:60]}', expected exactly one GPU slice")
+                bad.append(f"{n}: sees '{gpu[:60]}', expected exactly one GPU" + (" slice" if st.get("mode") != "shared" else ""))
         if bad:
             raise PackError("; ".join(bad)[:500] + ". On the VM: sudo docker logs <lab>")
-        ctx.log(f"  all {len(st['labs'])} labs answer, need their token, and see one slice each")
+        sees = "the GPU they share" if st.get("mode") == "shared" else "one slice each"
+        ctx.log(f"  all {len(st['labs'])} labs answer, need their token, and see {sees}")
         return {"public_ok": self._public(ctx)}
 
     def _public(self, ctx: PackContext) -> bool:
@@ -406,11 +469,32 @@ class GpuNotebooks(Pack):
             return False
         return True
 
+    def _notes(self, ctx: PackContext, rows: List[Dict[str, str]]) -> List[str]:
+        """Things the person running this must not miss, in the order they are shown."""
+        st, p = ctx.state, ctx.params
+        notes = []
+        if st.get("login_user") and flag(p["login_sudo"]):
+            notes.append("This user has sudo and docker: that is root. Anyone with the password can read every lab's token and stop other labs.")
+        if p["tls"] == "internal":
+            notes.append("The certificate is self-signed: the browser shows a warning once. Choose to continue.")
+        if not st.get("public_ok"):
+            fw = " ".join(f"-L {lab_port(i)}:localhost:{lab_port(i)}" for i in range(1, len(rows) + 1))
+            notes.append(f"Not reachable from the internet. Through a tunnel instead: ssh -N {fw} {st.get('ssh_user') or 'shadeform'}@{st['ip']}")
+            notes.append("then open http://localhost:<port>/<lab>/lab?token=<token> (lab-01 is port 8801, lab-02 is 8802, ...)")
+        return notes
+
     def _report(self, ctx: PackContext):
         st, p = ctx.state, ctx.params
         rows = list(csv.DictReader(credentials_path(ctx.name).open(encoding="utf-8")))
+        pw = next(csv.DictReader(login_path(ctx.name).open(encoding="utf-8")))["password"] if st.get("login_user") else None
+        if ctx.ui:
+            self._report_card(ctx, rows, pw)
+            return {}
         ctx.log("")
-        ctx.log(f"GPU labs ready: {len(rows)} x JupyterLab, one Docker container per {st['profile']} slice of {st.get('gpu') or 'the GPU'}")
+        if st.get("mode") == "shared":
+            ctx.log(f"GPU labs ready: {len(rows)} x JupyterLab sharing {st.get('gpu') or 'the GPU'}. NO isolation: every lab can use all of the GPU's memory")
+        else:
+            ctx.log(f"GPU labs ready: {len(rows)} x JupyterLab, one Docker container per {st['profile']} slice of {st.get('gpu') or 'the GPU'}")
         when = f"at about {st['expires_utc']}" if st.get("expires_utc") else f"after the {p['hours']} hours you set"
         ctx.log(f"VM {st['ip']} ({p['cloud']}), deleted automatically {when}. Stop it sooner: labagent destroy {PACK_ID} --name {ctx.name}")
         ctx.log("Each learner opens their own link. The token in it is the login.")
@@ -419,19 +503,42 @@ class GpuNotebooks(Pack):
             ctx.log(f"  {r['lab']}  {r['login_url']}")
         ctx.log("")
         ctx.log(f"Same list, as a file: {st['credentials_file']}")
-        if st.get("login_user"):
-            pw = next(csv.DictReader(login_path(ctx.name).open(encoding="utf-8")))["password"]
+        notes = self._notes(ctx, rows)
+        if pw is not None:
             ctx.log("")
             ctx.log(f"Shell login to share: ssh {st['login_user']}@{st['domain']}   password: {pw}   (host name {st.get('hostname')}, file {st['login_file']})")
-            if flag(p["login_sudo"]):
-                ctx.log("This user has sudo and docker: that is root. Anyone with the password can read every lab's token and stop other labs.")
-        if p["tls"] == "internal":
-            ctx.log("The certificate is self-signed: the browser shows a warning once. Choose to continue.")
-        if not st.get("public_ok"):
-            fw = " ".join(f"-L {lab_port(i)}:localhost:{lab_port(i)}" for i in range(1, len(rows) + 1))
-            ctx.log(f"Not reachable from the internet. Through a tunnel instead: ssh -N {fw} {st.get('ssh_user') or 'shadeform'}@{st['ip']}")
-            ctx.log("then open http://localhost:<port>/<lab>/lab?token=<token> (lab-01 is port 8801, lab-02 is 8802, ...)")
+        for note in notes:
+            ctx.log(note)
         return {}
+
+    def _report_card(self, ctx: PackContext, rows: List[Dict[str, str]], pw: Optional[str]) -> None:
+        """The same facts as the plain report, laid out for a person at a terminal. Strip the colour and nothing is missing."""
+        ui, s, st, p = ctx.ui, ctx.ui.s, ctx.state, ctx.params
+        shared = st.get("mode") == "shared"
+        times = ui.sym["times"]
+        gpu = st.get("gpu") or "the GPU"
+        what = f"sharing {gpu}" if shared else f"one per {st['profile']} slice of {gpu}"
+        price = f"  {ui.sym['dot']}  ${st['hourly_cents'] / 100:.2f}/h" if st.get("hourly_cents") else ""
+        when = st.get("expires_utc") or f"in {p['hours']} h"
+        lines = [s(f"{len(rows)} {times} JupyterLab", "bold") + "  " + what, ""]
+        if shared:
+            lines += [s(f"{ui.sym['warn']} NO isolation: every lab can use all of the GPU's memory", "red", "bold"), ""]
+        lines += [ui.kv("VM", f"{st['ip']}  {ui.sym['dot']}  {p['cloud']}{price}"),
+                  ui.kv("Expires", f"{when}  " + s("(the cloud deletes the VM)", "gray")),
+                  ui.kv("Stop", s(f"labagent destroy {PACK_ID} --name {ctx.name}", "cyan")), "",
+                  s("Each learner opens their own link. The token in it is the login.", "gray")]
+        for r in rows:
+            url, sep, token = r["login_url"].partition("?token=")
+            lines.append(s(r["lab"], "bold") + "  " + s(url, "cyan", "underline") + s(sep + token, "gray"))
+        lines += ["", ui.kv("Lab file", st["credentials_file"])]
+        if pw is not None:
+            lines += ["", ui.kv("Shell", f"ssh {st['login_user']}@{st['domain']}"), ui.kv("Password", s(pw, "yellow", "bold")),
+                      ui.kv("Host name", str(st.get("hostname"))), ui.kv("Login file", st["login_file"])]
+        notes = self._notes(ctx, rows)
+        if notes:
+            lines.append("")
+            lines += [s(ui.sym["warn"], "yellow", "bold") + " " + s(n, "yellow") for n in notes]
+        ui.later(lambda: ui.card("GPU labs ready", lines, "green"))
 
     # ---- destroy ----
     def destroy_steps(self, ctx: PackContext) -> List[Step]:

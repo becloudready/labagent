@@ -90,9 +90,11 @@ def launch_params(**kw):
 class FakeSsh:
     """Stands in for the VM: answers the few commands the pack sends, and remembers every command and its stdin."""
 
-    def __init__(self, down_for=0, slices=7, anon=403, gpu="1 NVIDIA H100 PCIe MIG 1g.10gb 9984", fail=None):
+    def __init__(self, down_for=0, slices=7, anon=403, gpu="1 NVIDIA H100 PCIe MIG 1g.10gb 9984", fail=None, partition=None):
         self.calls, self.csv, self.down_for, self.slices, self.anon, self.gpu, self.fail = [], None, down_for, slices, anon, gpu, fail
         self.args = None
+        self.partition = list(partition or [])      # scripted answers of `partition`, in order; the last one repeats. Default: the H100 facts
+        self.boot_id, self.down_after_reboot = "boot-1", 0
 
     def __call__(self, host, user, port, key_file, known_hosts):
         self.args = (host, user, port, key_file, known_hosts)
@@ -114,7 +116,17 @@ class FakeSsh:
         if command.endswith("start-labs.sh access"):
             self.password = (stdin or "").rstrip("\n")
             return 0, "HOSTNAME=x\nLOGIN_USER=x\nPROMPT=set\n", ""
+        if command == "cat /proc/sys/kernel/random/boot_id":
+            if self.down_after_reboot > 0:
+                self.down_after_reboot -= 1
+                return 255, "", "ssh: connect to host: Connection refused"
+            return 0, self.boot_id + "\n", ""
+        if "systemctl reboot" in command:
+            self.boot_id, self.down_after_reboot = "boot-2", 2
+            return 0, "", ""
         if command.endswith("start-labs.sh partition"):
+            if self.partition:
+                return self.partition.pop(0) if len(self.partition) > 1 else self.partition[0]
             return 0, f"SLICES={self.slices}\nPROFILE=1g.10gb\nGPU_NAME=NVIDIA H100 PCIe\nGPU_COUNT=1\n", ""
         if command.endswith("start-labs.sh verify"):
             rows = [l.split(",") for l in (self.csv or "").splitlines()[1:]]
@@ -535,3 +547,130 @@ def test_yes_no_params_mean_the_same_from_the_command_line_and_from_a_file(home)
     run("launch", FakeShadeform(), ssh=ssh, log=logs.append, params=launch_params(login_sudo="false"))     # the text a --param flag gives
     assert "LOGIN_SUDO='no'" in settings(ssh)
     assert next(csv.DictReader(open(login_path("t"), encoding="utf-8")))["sudo"] == "no" and "that is root" not in "\n".join(logs)
+
+
+# ---- A100 and RTX 5090 ----
+
+A100_FACTS = "SLICES=7\nPROFILE=1g.5gb\nGPU_NAME=NVIDIA A100-SXM4-40GB\nGPU_COUNT=1\n"
+NEEDS_REBOOT = (75, "NEEDS_REBOOT=1\n", "ERROR: MIG is switched on for GPU 0 but takes effect only after the VM reboots\n")
+
+
+def test_the_default_profile_is_auto_and_the_vm_reports_what_it_chose(home):
+    ssh = FakeSsh(partition=[(0, A100_FACTS, "")])
+    api = FakeShadeform()
+    env = run("launch", api, ssh=ssh)
+    assert env.status == "ok"
+    env_file = next(stdin for cmd, stdin in ssh.calls if "labs.env" in cmd)
+    assert "PROFILE='auto'" in env_file and "MODE='mig'" in env_file
+    st = load_state("gpu-notebooks", "t")
+    assert (st["profile"], st["mode"], st["slices"], st["lab_count"]) == ("1g.5gb", "mig", 7, 7)
+
+
+def test_an_a100_that_needs_a_reboot_is_rebooted_once_and_resumes(home):
+    ssh = FakeSsh(partition=[NEEDS_REBOOT, (0, A100_FACTS, "")])
+    logs = []
+    env = run("launch", FakeShadeform(), ssh=ssh, log=logs.append)
+    assert env.status == "ok"
+    cmds = ssh.commands()
+    reboot_at = next(i for i, c in enumerate(cmds) if "systemctl reboot" in c)
+    parts = [i for i, c in enumerate(cmds) if c.endswith("start-labs.sh partition")]
+    assert len(parts) == 2 and parts[0] < reboot_at < parts[1]                    # split, reboot, split again
+    assert sum("systemctl reboot" in c for c in cmds) == 1
+    assert any("rebooting the VM once" in m for m in logs)
+    assert load_state("gpu-notebooks", "t")["profile"] == "1g.5gb"
+
+
+def test_the_reboot_command_is_detached_so_ssh_can_return(home):
+    ssh = FakeSsh(partition=[NEEDS_REBOOT, (0, A100_FACTS, "")])
+    run("launch", FakeShadeform(), ssh=ssh)
+    cmd = next(c for c in ssh.commands() if "systemctl reboot" in c)
+    assert cmd.startswith("sudo sh -c") and "nohup" in cmd and ">/dev/null 2>&1 &" in cmd
+
+
+def test_a_vm_that_still_wants_a_reboot_after_one_is_a_plain_failure(home):
+    ssh = FakeSsh(partition=[NEEDS_REBOOT])
+    env = run("launch", FakeShadeform(), ssh=ssh)
+    assert env.status == "failed" and "did not turn on after a reboot" in json.dumps(env.to_dict())
+    assert sum("systemctl reboot" in c for c in ssh.commands()) == 1             # never a second one
+
+
+def test_a_vm_that_never_comes_back_is_reported_not_waited_for_forever(home):
+    ssh = FakeSsh(partition=[NEEDS_REBOOT, (0, A100_FACTS, "")])
+    ssh.run_orig = ssh.run
+
+    def stuck(command, stdin=None, timeout=900):
+        if command == "cat /proc/sys/kernel/random/boot_id" and ssh.boot_id == "boot-2":
+            return 255, "", "refused"
+        return ssh.run_orig(command, stdin, timeout)
+    ssh.run = stuck
+    now = [0.0]
+
+    def clock():
+        now[0] += 30
+        return now[0]
+    env = run("launch", FakeShadeform(), ssh=ssh, clock=clock)
+    assert env.status == "failed" and "did not come back within 10 minutes" in json.dumps(env.to_dict())
+
+
+def test_a_script_failure_that_is_not_a_reboot_request_is_still_an_error(home):
+    ssh = FakeSsh(partition=[(1, "", "ERROR: cannot enable MIG on GPU 0: this GPU or VM does not allow it\n")])
+    env = run("launch", FakeShadeform(), ssh=ssh)
+    assert env.status == "failed" and "cannot enable MIG on GPU 0" in json.dumps(env.to_dict())
+    assert not any("systemctl reboot" in c for c in ssh.commands())
+
+
+def rtx_types(monkeypatch):
+    offer = {"shade_instance_type": "RTX5090", "cloud": "example-cloud", "hourly_price": 65, "gpu_type": "RTX5090", "num_gpus": 1,
+             "configuration": {"os_options": ["ubuntu22.04_cuda12.8_shade_os"]},
+             "availability": [{"region": "eu-1", "available": True, "rental_type": "on_demand"}]}
+    monkeypatch.setitem(globals(), "TYPES", {"instance_types": [offer]})
+
+
+def rtx_params(**kw):
+    return {"instance_type": "RTX5090", "vendor": "example-cloud", "region": "eu-1", "os": "ubuntu22.04_cuda12.8_shade_os", "ssh_key_id": "key-1", **kw}
+
+
+def test_mig_on_a_geforce_card_is_refused_before_anything_is_rented(home, monkeypatch):
+    rtx_types(monkeypatch)
+    api = FakeShadeform()
+    env = run("launch", api, params=rtx_params())
+    text = json.dumps(env.to_dict())
+    assert env.status == "failed" and "RTX5090 has no MIG" in text and "mode=shared and labs=N" in text
+    assert api.creates() == []
+
+
+def test_shared_mode_needs_a_lab_count(home, monkeypatch):
+    rtx_types(monkeypatch)
+    api = FakeShadeform()
+    env = run("launch", api, params=rtx_params(mode="shared"))
+    assert env.status == "failed" and "mode=shared needs labs=N" in json.dumps(env.to_dict()) and api.creates() == []
+
+
+def test_mode_must_be_known(home):
+    env = run("launch", FakeShadeform(), params=launch_params(mode="both"))
+    assert env.status == "failed" and "mode must be mig or shared" in json.dumps(env.to_dict())
+
+
+def test_shared_mode_starts_the_labs_you_ask_for_and_says_there_is_no_isolation(home, monkeypatch):
+    rtx_types(monkeypatch)
+    facts = "SLICES=0\nPROFILE=shared\nGPU_NAME=NVIDIA GeForce RTX 5090\nGPU_COUNT=1\n"
+    ssh = FakeSsh(partition=[(0, facts, "")], gpu="1 NVIDIA GeForce RTX 5090 32607")
+    logs = []
+    env = run("launch", FakeShadeform(), params=rtx_params(mode="shared", labs=4), ssh=ssh, log=logs.append)
+    assert env.status == "ok", env.to_dict()
+    env_file = next(stdin for cmd, stdin in ssh.calls if "labs.env" in cmd)
+    assert "MODE='shared'" in env_file
+    st = load_state("gpu-notebooks", "t")
+    assert (st["mode"], st["lab_count"], st["profile"], st["slices"]) == ("shared", 4, "shared", 0)
+    text = "\n".join(logs)
+    assert "shared mode. 4 labs will share" in text and "NO isolation" in text and "sharing NVIDIA GeForce RTX 5090" in text
+    assert "all 4 labs answer" in text and "the GPU they share" in text
+    assert "one Docker container per" not in text
+
+
+def test_a_shared_lab_that_sees_two_gpus_is_caught(home, monkeypatch):
+    rtx_types(monkeypatch)
+    facts = "SLICES=0\nPROFILE=shared\nGPU_NAME=NVIDIA GeForce RTX 5090\nGPU_COUNT=2\n"
+    ssh = FakeSsh(partition=[(0, facts, "")], gpu="2 NVIDIA GeForce RTX 5090 32607")
+    env = run("launch", FakeShadeform(), params=rtx_params(mode="shared", labs=2), ssh=ssh)
+    assert env.status == "failed" and "expected exactly one GPU" in json.dumps(env.to_dict())

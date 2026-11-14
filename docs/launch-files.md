@@ -35,5 +35,3 @@ Any other top-level key is an error, so a typo such as `param:` is caught instea
 **Secrets stay out of the file.** `${NAME}` is replaced from the environment, `${NAME:-fallback}` uses the fallback when `NAME` is unset or empty, and a missing variable with no fallback stops the run and names the variable. Keep tokens and keys in the environment or in `~/.labagent/credentials`, not in a file you commit.
 
 The file is read with a safe YAML loader (no code runs) and must be UTF-8 text under 1 MB.
-
-Example: [docs/examples/gpu-notebooks-hackathon.yaml](examples/gpu-notebooks-hackathon.yaml).
