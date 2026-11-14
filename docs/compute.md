@@ -22,7 +22,7 @@ Every table starts with whose answer it is: `Shadeform . GPU offers . on-demand,
 
 ## offers
 
-Filters: `--gpu` (family, e.g. H100), `--gpus` (count per machine), `--type` (the cloud's shape name, the `instance_type` parameter), `--vendor` (the datacenter company behind the offer), `--region`, `--kind` (vm, baremetal, container), `--max-price` (dollars per hour), `--all` (include sold out), `--limit`. Capacity changes within minutes, so look right before you launch. Only on-demand capacity is listed, never spot.
+Filters: `--gpu` (family, e.g. H100), `--gpus` (count per machine), `--type` (the cloud's shape name, the `instance_type` parameter), `--vendor` (the datacenter company behind the offer), `--region`, `--location` (`any`, `europe`, `north-america`, `asia-pacific`: the area of the region, from its country code), `--kind` (vm, baremetal, container), `--max-price` (dollars per hour), `--all` (include sold out), `--limit`. Capacity changes within minutes, so look right before you launch. Only on-demand capacity is listed, never spot.
 
 Each row gives `vendor`, `region` and `instance_type`, and the `os` values the offer accepts. Use `--kind vm` or `baremetal` for `gpu-notebooks`: a `container` offer has no root, Docker or MIG.
 
@@ -34,7 +34,7 @@ Add `--json`. Every document has `schema` (what it is, and its version), `status
 {"schema": "compute.offers/1", "status": "ok", "cloud": "shadeform", "cloud_title": "Shadeform", "fetched_at": "2026-11-13T18:20:00Z",
  "count": 1, "returned": 1, "warnings": [], "offers": [
   {"instance_type": "H100", "vendor": "latitude", "region": "dallas-usa-1", "region_name": "US, Dallas, TX", "gpu_type": "H100",
-   "num_gpus": 1, "vram_gb": 80, "vcpus": 16, "memory_gb": 192, "storage_gb": 7600, "interconnect": "pcie", "kind": "baremetal",
+   "num_gpus": 1, "vram_gb": 80, "vcpus": 16, "memory_gb": 192, "storage_gb": 7600, "interconnect": "pcie", "kind": "baremetal", "location": "north-america",
    "hourly_usd": 1.99, "available": true, "boot_seconds": 1020, "max_labs": 7, "os_options": ["ubuntu24.04_cuda12.4_shade_os"],
    "launch": {"cloud": "shadeform", "instance_type": "H100", "vendor": "latitude", "region": "dallas-usa-1"}}]}
 ```

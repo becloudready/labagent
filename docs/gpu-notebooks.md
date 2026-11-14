@@ -15,7 +15,7 @@ labagent destroy gpu-notebooks --name nvidia-h100-hackathon
 
 The same run from a file ([launch files](launch-files.md)): `labagent launch -f hackathon.yaml`, and `labagent destroy -f hackathon.yaml` to stop it.
 
-Leave `vendor` and `region` out and the launch stops with the five cheapest available offers for your `instance_type`.
+Leave `vendor` and `region` out and the launch stops with the five cheapest available offers for your `instance_type`. Or set `location` instead (`any`, `europe`, `north-america`, `asia-pacific`) and labagent picks the cheapest available machine of that `instance_type` there, with the newest CUDA image. It keeps that pick in the pack's state, so a rerun never switches machine.
 
 ## See what is available first
 
@@ -55,6 +55,9 @@ In a terminal the run is laid out for people: a banner, numbered steps with a li
 |---|---|
 | `cloud` | Whose API to call: `shadeform` (default, the only one so far) |
 | `instance_type` | The cloud's shape: `H100` is one GPU, `H100x8` is eight |
+| `location` | `any`, `europe`, `north-america` or `asia-pacific`. Used only when `vendor` and `region` are empty: picks the cheapest available machine of `instance_type` in that area (never a container) and the newest CUDA `os`. Fails with a plain message when nothing is available there |
+| `max_price` | Dollars per hour, default 0 (no limit). Used with `location`: dearer offers are ignored, and the launch fails plainly if none is left |
+| `show_passwords` | `yes` (default) or `no`. `no` keeps every lab token and the shell password out of the printed report and the card. They stay in the credentials file, and a job with a public key gets the tokens back sealed. The console always sets `no` |
 | `vendor`, `region`, `os`, `ssh_key_id` | Shadeform options. `vendor` is the datacenter company behind the offer (`scaleway`, `massedcompute`). `os` must be one the offer lists |
 | `ssh_key_file` | Private key that matches `ssh_key_id` (default: whatever ssh finds) |
 | `hours` | The cloud deletes the VM after this long (1 to 72, default 4) |

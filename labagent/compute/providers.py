@@ -23,6 +23,31 @@ from .errors import ComputeError
 USER_AGENT = "labagent-compute (+https://github.com/becloudready/labagent)"
 
 
+# Where a machine is, in the words a learner uses. The country is the two-letter code a cloud puts first in a region's display name
+# ("US, Dallas, TX"). A region with no country code has no area: it is only found by "any".
+AREAS: Dict[str, Tuple[str, frozenset]] = {
+    "europe": ("Europe", frozenset("AT BE BG CH CZ DE DK EE ES FI FR GB GR HR HU IE IS IT LT LU LV NL NO PL PT RO SE SI SK UA".split())),
+    "north-america": ("North America", frozenset("US CA MX".split())),
+    "asia-pacific": ("Asia Pacific", frozenset("JP IN SG AU NZ KR HK TW ID MY TH VN PH".split())),
+}
+LOCATIONS = ("any",) + tuple(AREAS)
+
+
+def area_of(region_name: str) -> str:
+    """europe, north-america or asia-pacific, or "" when the region does not say or is somewhere else."""
+    m = re.match(r"\s*([A-Z]{2})\s*,", region_name or "")
+    return next((key for key, (_, codes) in AREAS.items() if m and m.group(1) in codes), "")
+
+
+def best_os(options: List[str]) -> str:
+    """The newest CUDA image, then the newest Ubuntu, of the form ubuntu24.04_cuda13.0_shade_os. "" when none looks like one."""
+    def rank(o: str):
+        m = re.fullmatch(r"ubuntu(\d+)\.(\d+)_cuda(\d+)\.(\d+)_shade_os", o)
+        return (int(m.group(3)), int(m.group(4)), int(m.group(1)), int(m.group(2))) if m else None
+    ranked = [(rank(o), o) for o in options if rank(o)]
+    return max(ranked)[1] if ranked else ""
+
+
 @dataclass
 class HostSpec:
     name: str                       # provider-side name (letters, digits, - and _)
@@ -58,6 +83,7 @@ class OfferQuery:
     kind: Optional[str] = None              # vm | baremetal | container
     max_price: Optional[float] = None       # dollars per hour
     available_only: bool = True
+    area: Optional[str] = None              # europe | north-america | asia-pacific ("any" or None: everywhere)
 
 
 @dataclass
@@ -79,6 +105,10 @@ class Offer:
     kind: str = ""
     boot_seconds: int = 0                   # the slowest the cloud says it can take
     os_options: List[str] = field(default_factory=list)
+
+    @property
+    def area(self) -> str:
+        return area_of(self.region_name)
 
 
 @dataclass
@@ -262,6 +292,8 @@ class ShadeformProvider(Provider):
                 if query.available_only and not a.get("available"):
                     continue
                 if not same(a.get("region"), query.region):
+                    continue
+                if query.area not in (None, "", "any") and area_of(str(a.get("display_name") or "")) != query.area:
                     continue
                 out.append(Offer(
                     instance_type=str(t.get("shade_instance_type") or ""), vendor=str(t.get("cloud") or ""), region=str(a.get("region") or ""),
