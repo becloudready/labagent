@@ -15,7 +15,8 @@ def builtin() -> Dict[str, Pack]:
     from .dbx_lakehouse.pack import DatabricksLakehouse
     from .azure_labs.pack import AzureLabs
     from .gpu_notebooks.pack import GpuNotebooks
-    return {p.id: p for p in (RagSecTutorial(), DbAgent(), RagIde(), AmlLab(), DatabricksWorkspace(), DatabricksLakehouse(), AzureLabs(), GpuNotebooks())}
+    from .redis_migrate.pack import RedisMigrate
+    return {p.id: p for p in (RagSecTutorial(), DbAgent(), RagIde(), AmlLab(), DatabricksWorkspace(), DatabricksLakehouse(), AzureLabs(), GpuNotebooks(), RedisMigrate())}
 
 
 def all_packs() -> Dict[str, Pack]:
