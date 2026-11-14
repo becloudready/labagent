@@ -166,7 +166,7 @@ def test_offers_json_is_a_stable_machine_shape(api, capsys):
     assert (doc["schema"], doc["status"], doc["cloud"], doc["cloud_title"], doc["count"]) == ("compute.offers/1", "ok", "shadeform", "Shadeform", 2)
     first = doc["offers"][0]
     assert set(first) == {"instance_type", "vendor", "region", "region_name", "gpu_type", "num_gpus", "vram_gb", "vcpus", "memory_gb", "storage_gb",
-                          "interconnect", "kind", "hourly_usd", "available", "boot_seconds", "max_labs", "os_options", "launch"}
+                          "interconnect", "kind", "hourly_usd", "available", "location", "boot_seconds", "max_labs", "os_options", "launch"}
     assert first["hourly_usd"] == 1.99 and first["max_labs"] == 7
     assert first["launch"] == {"cloud": "shadeform", "instance_type": "H100", "vendor": "alpha", "region": "us-1"}
 

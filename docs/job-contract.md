@@ -18,7 +18,7 @@ By hand, the job, the `--config` file and the `--ruleset` file may be YAML inste
 | `approved_hash` | string | The plan hash a human approved. Apply is refused on mismatch |
 | `secrets_pubkey_pem` | PEM | RSA public key. Required for `provision` and `reset` (passwords are RSA-OAEP SHA-256 encrypted to it) |
 | `ruleset` | object | For `audit` and `cleanup` (plan). See docs/account-cleanup.md |
-| `pack`, `name`, `params` | string, string, object | For `launch` and `destroy`: a pack id or alias, the instance name (`[a-z0-9-]`, 31 characters at most) and its parameters. `image` and `profile` are refused. These commands need no AWS account allow list: the pack brings its own credentials |
+| `pack`, `name`, `params` | string, string, object | For `launch` and `destroy`: a pack id or alias, the instance name (`[a-z0-9-]`, 31 characters at most) and its parameters. `image`, `profile` and `ssh_key_file` are refused (the last would point labagent at a file on the machine that runs the job). These commands need no AWS account allow list: the pack brings its own credentials |
 | `options` | object | `all_cohorts`, `force`, `learner_id` (reset), `only_learner_id` (sweep a single learner), `password_reset_required` (provision/reset; default from config), `regions` (audit/cleanup; `["*"]` = all enabled regions) |
 
 ## Result (labagent to orchestrator)

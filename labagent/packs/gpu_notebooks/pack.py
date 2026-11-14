@@ -119,6 +119,9 @@ class GpuNotebooks(Pack):
         Param("instance_type", "H100", "The cloud's GPU shape, e.g. H100 (one GPU) or H100x8 (eight)"),
         Param("vendor", None, "shadeform: the datacenter company behind the offer, e.g. scaleway. Leave out to list what is available"),
         Param("region", None, "shadeform: that vendor's region, e.g. paris-france-1"),
+        Param("location", "", "Leave vendor and region out and set this instead: any | europe | north-america | asia-pacific. "
+                              "The cheapest available machine of this instance_type there is picked"),
+        Param("max_price", 0, "Most you will pay, in dollars per hour. Used when picking by location: dearer offers are ignored. 0 = no limit"),
         Param("os", None, "VM image from the cloud's list, e.g. ubuntu24.04_cuda13.0_shade_os (default: the cloud's)"),
         Param("ssh_key_id", None, "shadeform: id of an SSH key already added to your account (default: your account's default key)"),
         Param("ssh_key_file", None, "Private key file that matches ssh_key_id (default: whatever ssh finds, e.g. ~/.ssh/id_ed25519)"),
@@ -133,9 +136,11 @@ class GpuNotebooks(Pack):
         Param("domain", None, "Name the labs are served on (default: <ip>.sslip.io). Its DNS must point at the VM"),
         Param("hostname", None, "Host name of the VM, shown in every shell prompt (default: the launch --name, e.g. nvidia-h100-hackathon)"),
         Param("login_user", "labagent", "A user to share with students: ssh with a password. Empty = do not create one"),
+        Param("show_passwords", "yes", "yes | no. no keeps every lab token and the shell password out of the printed report (they stay in the credentials file, "
+                                       "and a job with a public key returns the tokens sealed). The console always sets no"),
         Param("login_sudo", True, "Give login_user sudo and docker. WARNING: that is root, so one student can read every lab's token and stop other labs"),
     ]
-    output_keys = ("cloud", "host_name", "host_id", "ip", "ssh_user", "ssh_port", "hourly_cents", "expires_utc", "gpu", "mode", "profile", "slices",
+    output_keys = ("cloud", "host_name", "host_id", "vendor", "region", "ip", "ssh_user", "ssh_port", "hourly_cents", "expires_utc", "gpu", "mode", "profile", "slices",
                    "domain", "base_url", "credentials_file", "public_ok", "hostname", "login_user", "login_file")
 
     def services(self, profile):
@@ -157,19 +162,30 @@ class GpuNotebooks(Pack):
             raise PackError("hours must be a whole number from 1 to 72")
         if not 1 <= hours <= 72:
             raise PackError("hours must be between 1 and 72")
-        return HostSpec(name=host_name(ctx.name), instance_type=str(p["instance_type"]), vendor=p["vendor"], region=p["region"],
-                        os_image=p["os"], ssh_key_id=p["ssh_key_id"], hours=hours, tags=["labagent", host_tag(ctx.name)])
+        st = ctx.state                                  # a machine picked by `location` is remembered, so a rerun asks for the same one
+        return HostSpec(name=host_name(ctx.name), instance_type=str(p["instance_type"]), vendor=p["vendor"] or st.get("vendor"),
+                        region=p["region"] or st.get("region"), os_image=p["os"] or st.get("os"), ssh_key_id=p["ssh_key_id"], hours=hours,
+                        tags=["labagent", host_tag(ctx.name)])
 
     def _check_lab_params(self, ctx: PackContext) -> int:
         p = ctx.params
         if p["mode"] not in ("mig", "shared"):
             raise PackError("mode must be mig or shared")
+        if p["location"] and p["location"] not in providers.LOCATIONS:
+            raise PackError(f"location must be one of: {', '.join(providers.LOCATIONS)}")
         if not re.fullmatch(r"[0-9a-z.+]+", str(p["mig_profile"])):
             raise PackError("mig_profile must be auto, or look like 1g.10gb")
         if not re.fullmatch(r"[A-Za-z0-9._/:@-]+", str(p["image"])):
             raise PackError("image must be a Docker image name such as quay.io/jupyter/pytorch-notebook:cuda12-latest")
         if p["tls"] not in ("letsencrypt", "internal", "none"):
             raise PackError("tls must be letsencrypt, internal or none")
+        if p["show_passwords"] not in ("yes", "no"):
+            raise PackError("show_passwords must be yes or no")
+        try:
+            if float(p["max_price"]) < 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            raise PackError("max_price must be a number of dollars per hour, or 0 for no limit")
         if p["domain"] and not re.fullmatch(r"[A-Za-z0-9.-]+", str(p["domain"])):
             raise PackError("domain must be a plain host name")
         if p["hostname"] and not re.fullmatch(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?", str(p["hostname"])):
@@ -260,10 +276,33 @@ class GpuNotebooks(Pack):
                      else "Check every lab: it answers, needs its token, and sees only its own slice", self._verify),
                 Step("report", "Print the URL and login of every lab", self._report)]
 
+    def _pick(self, ctx: PackContext, prov) -> Dict[str, str]:
+        """No vendor and region given: the cheapest machine of this shape that is available now, in the wanted area."""
+        p = ctx.params
+        area = p["location"]
+        ceiling = float(p["max_price"])
+        found = [o for o in prov.offers(providers.OfferQuery(instance_type=str(p["instance_type"]), available_only=True,
+                                                             area=None if area == "any" else area))
+                 if o.kind != "container" and (not ceiling or o.hourly_usd <= ceiling)]      # a container has no root, Docker or MIG
+        if not found:
+            where = f" in {providers.AREAS[area][0]}" if area in providers.AREAS else ""
+            under = f" at ${ceiling:.2f}/h or less" if ceiling else ""
+            raise PackError(f"no {p['instance_type']} is available{where}{under} right now. Capacity changes within minutes: try again, or choose another "
+                            f"location or GPU. To see what exists: labagent compute offers --cloud {p['cloud']} --type {p['instance_type']}")
+        best = found[0]                                                   # offers come cheapest first
+        ctx.log(f"  picked the cheapest of {len(found)} available: {best.vendor} in {best.region}")
+        return {"vendor": best.vendor, "region": best.region, "os": p["os"] or providers.best_os(best.os_options) or ""}
+
     def _preflight(self, ctx: PackContext):
-        spec = self._spec(ctx)
+        self._spec(ctx)                                                   # hours are checked first, as before
         self._check_lab_params(ctx)
-        info = self._provider(ctx).validate(spec)
+        prov = self._provider(ctx)
+        picked: Dict[str, str] = {}
+        if not (ctx.params["vendor"] and ctx.params["region"]) and ctx.params["location"]:
+            picked = self._pick(ctx, prov)
+            ctx.state.update(picked)
+        spec = self._spec(ctx)
+        info = prov.validate(spec)
         if ctx.params["mode"] == "mig" and info.get("gpu_type") in NO_MIG:
             raise PackError(f"{info['gpu_type']} has no MIG, so it cannot be split into isolated slices. To put several labs on it anyway, "
                             "with no isolation between them, set mode=shared and labs=N")
@@ -272,7 +311,7 @@ class GpuNotebooks(Pack):
         if ctx.params["mode"] == "shared":
             ctx.log(f"  warning: shared mode. {ctx.params['labs']} labs will share each GPU's memory with NO isolation: one lab can use it all "
                     "and make the others fail with out-of-memory errors")
-        return {"cloud": ctx.params["cloud"], "host_name": spec.name, "hourly_cents": info["hourly_cents"]}
+        return {"cloud": ctx.params["cloud"], "host_name": spec.name, "hourly_cents": info["hourly_cents"], **picked}
 
     def _host_ready(self, ctx: PackContext) -> bool:
         hid = ctx.state.get("host_id")
@@ -399,6 +438,7 @@ class GpuNotebooks(Pack):
         names = [lab_name(i) for i in range(1, int(st["lab_count"]) + 1)]
         tokens = self._tokens(ctx, names)
         ctx.mem.setdefault("tokens", {}).update(tokens)
+        ctx.mem["passwords"] = dict(tokens)         # a job with a public key gets them back sealed, one per lab: the console shows each learner theirs
         base = ("http://" if p["tls"] == "none" else "https://") + st["domain"]
         f = credentials_path(ctx.name)
         f.parent.mkdir(parents=True, exist_ok=True)
@@ -487,6 +527,10 @@ class GpuNotebooks(Pack):
         st, p = ctx.state, ctx.params
         rows = list(csv.DictReader(credentials_path(ctx.name).open(encoding="utf-8")))
         pw = next(csv.DictReader(login_path(ctx.name).open(encoding="utf-8")))["password"] if st.get("login_user") else None
+        if p["show_passwords"] == "no":
+            for r in rows:
+                r["login_url"] = r["url"]                                 # the link without its token: the token is the login
+            pw = "(not shown)" if pw is not None else None
         if ctx.ui:
             self._report_card(ctx, rows, pw)
             return {}
@@ -497,7 +541,8 @@ class GpuNotebooks(Pack):
             ctx.log(f"GPU labs ready: {len(rows)} x JupyterLab, one Docker container per {st['profile']} slice of {st.get('gpu') or 'the GPU'}")
         when = f"at about {st['expires_utc']}" if st.get("expires_utc") else f"after the {p['hours']} hours you set"
         ctx.log(f"VM {st['ip']} ({p['cloud']}), deleted automatically {when}. Stop it sooner: labagent destroy {PACK_ID} --name {ctx.name}")
-        ctx.log("Each learner opens their own link. The token in it is the login.")
+        ctx.log("Each learner opens their own link. The token in it is the login." if p["show_passwords"] == "yes"
+                else "Each learner has a token, kept out of this report. It is in the credentials file below.")
         ctx.log("")
         for r in rows:
             ctx.log(f"  {r['lab']}  {r['login_url']}")
@@ -526,7 +571,8 @@ class GpuNotebooks(Pack):
         lines += [ui.kv("VM", f"{st['ip']}  {ui.sym['dot']}  {p['cloud']}{price}"),
                   ui.kv("Expires", f"{when}  " + s("(the cloud deletes the VM)", "gray")),
                   ui.kv("Stop", s(f"labagent destroy {PACK_ID} --name {ctx.name}", "cyan")), "",
-                  s("Each learner opens their own link. The token in it is the login.", "gray")]
+                  s("Each learner opens their own link. The token in it is the login." if p["show_passwords"] == "yes"
+                    else "Each learner has a token, kept out of this report. It is in the credentials file.", "gray")]
         for r in rows:
             url, sep, token = r["login_url"].partition("?token=")
             lines.append(s(r["lab"], "bold") + "  " + s(url, "cyan", "underline") + s(sep + token, "gray"))

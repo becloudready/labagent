@@ -48,7 +48,7 @@ def launch_params(cloud: str, o: Offer) -> Dict[str, str]:
 def offer_json(cloud: str, o: Offer) -> Dict[str, Any]:
     return {"instance_type": o.instance_type, "vendor": o.vendor, "region": o.region, "region_name": o.region_name, "gpu_type": o.gpu_type,
             "num_gpus": o.num_gpus, "vram_gb": o.vram_gb, "vcpus": o.vcpus, "memory_gb": o.memory_gb, "storage_gb": o.storage_gb,
-            "interconnect": o.interconnect, "kind": o.kind, "hourly_usd": o.hourly_usd, "available": o.available,
+            "interconnect": o.interconnect, "kind": o.kind, "hourly_usd": o.hourly_usd, "available": o.available, "location": o.area,
             "boot_seconds": o.boot_seconds, "max_labs": max_labs(o), "os_options": o.os_options, "launch": launch_params(cloud, o)}
 
 
@@ -186,6 +186,7 @@ def add_parser(sub) -> None:
     o.add_argument("--type", dest="instance_type", metavar="SHAPE", help="The cloud's shape name, e.g. H100 or H100x8_NVLINK (the instance_type parameter)")
     o.add_argument("--vendor", help="The datacenter company behind the offer, e.g. scaleway")
     o.add_argument("--region", help="e.g. paris-france-1")
+    o.add_argument("--location", choices=providers.LOCATIONS, help="Where: europe, north-america or asia-pacific (default any)")
     o.add_argument("--kind", choices=KINDS, help="vm or baremetal can run this pack's labs; container cannot")
     o.add_argument("--max-price", type=float, metavar="USD", help="At most this many dollars per hour")
     o.add_argument("--all", action="store_true", help="Include shapes that are sold out right now")
@@ -211,7 +212,7 @@ def _query(args) -> OfferQuery:
     if args.gpus is not None and args.gpus < 1:
         raise ComputeError("--gpus must be 1 or more")
     return OfferQuery(gpu_type=args.gpu, num_gpus=args.gpus, instance_type=args.instance_type, vendor=args.vendor, region=args.region,
-                      kind=args.kind, max_price=args.max_price, available_only=not args.all)
+                      kind=args.kind, max_price=args.max_price, available_only=not args.all, area=args.location)
 
 
 def run(args) -> int:
