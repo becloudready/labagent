@@ -34,4 +34,9 @@ Any other top-level key is an error, so a typo such as `param:` is caught instea
 
 **Secrets stay out of the file.** `${NAME}` is replaced from the environment, `${NAME:-fallback}` uses the fallback when `NAME` is unset or empty, and a missing variable with no fallback stops the run and names the variable. Keep tokens and keys in the environment or in `~/.labagent/credentials`, not in a file you commit.
 
-The file is read with a safe YAML loader (no code runs) and must be UTF-8 text under 1 MB.
+The file is read with a safe YAML loader (no code runs) and must be UTF-8 text under 1 MB. Aliases (`*name`) and a key written twice are errors, and only `true` and `false` are booleans: `yes`, `no`, `on` and `off` stay text, and `007`, `0x10` and `1:30` stay text instead of becoming octal, hex and base 60.
+
+## The other YAML files
+
+`run --job`, `--config` and `--ruleset` also take YAML when the file name ends in `.yaml` or `.yml` (see [job-contract.md](job-contract.md)). Those files are data for the AWS engine, not command lines, so they are read differently: a number stays a number, nothing is turned into a string and `${NAME}` is not expanded. `examples/` has a commented file of each kind.
+

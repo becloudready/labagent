@@ -10,7 +10,7 @@ All fake data: `e2e-student-01..10@example.com`, cohort `e2e-001`, date `01-Jan-
 Setup
 ```bash
 cd labagent && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]" && source .venv/bin/activate
-cp examples/config.example.json lab.json        # set allowed_account_ids to the TEST account id; keep lab.json out of git
+cp examples/config.example.yaml lab.yaml        # set allowed_account_ids to the TEST account id; keep lab.yaml out of git
 export AWS_PROFILE=<admin profile for the test account>
 openssl genrsa -out priv.pem 2048 && openssl rsa -in priv.pem -pubout -out pub.pem
 ```
@@ -18,13 +18,13 @@ openssl genrsa -out priv.pem 2048 && openssl rsa -in priv.pem -pubout -out pub.p
 ### A0: bootstrap the state backend (once per account)
 
 Follow `docs/state-and-secrets.md`: run the state backend module (`cd "$(labagent bootstrap-path)"`) with your own caller ARN in `admin_principal_arns` and
-`runner_principal_arns`, then copy `terraform output backend_config` into `lab.json` under `"backend"`.
-Also set `"name_prefix": "e2e"` so the test group, policy and role are `e2e-e2e-001-students` etc. and cannot collide with
+`runner_principal_arns`, then copy `terraform output backend_config` into `lab.yaml` under `backend:`.
+Also set `name_prefix: e2e` so the test group, policy and role are `e2e-e2e-001-students` etc. and cannot collide with
 anything real. Terraform >= 1.11 must be installed (`terraform version`).
 
 | # | Action | Expected |
 |---|---|---|
-| A1 | `python scripts/make_test_job.py --command provision --mode dry-run --cohort e2e-001 --date 01-Jan-2030 --pubkey pub.pem > job.json`, then `labagent --config lab.json run --job job.json --output result.json` | exit 0, 10 items `planned` (a real `terraform plan`, read-only: no lock, no state write), nothing in IAM |
+| A1 | `python scripts/make_test_job.py --command provision --mode dry-run --cohort e2e-001 --date 01-Jan-2030 --pubkey pub.pem > job.json`, then `labagent --config lab.yaml run --job job.json --output result.json` | exit 0, 10 items `planned` (a real `terraform plan`, read-only: no lock, no state write), nothing in IAM |
 | A2 | Same with no `--mode` (apply) | exit 0, 10 `created`, 10 `secrets` with ciphertext only. IAM shows 10 users, the cohort group, policy and Lambda role. S3 shows `cohorts/e2e-001/terraform.tfstate`: download it and confirm it contains **no password** |
 | A3 | Decrypt one: `jq -r '.secrets[0].ciphertext' result.json \| base64 -d > ct.bin; openssl pkeyutl -decrypt -inkey priv.pem -in ct.bin -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 -pkeyopt rsa_mgf1_md:sha256` | prints a 20 char password. `grep` the result file for that password: no match |
 | A4 | Re-run A2 | 10 `exists`, **0 secrets** (no password re-issued), exit 0 |

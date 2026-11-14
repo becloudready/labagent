@@ -50,7 +50,10 @@ terraform.rc
 # --- labagent operational data: rosters, jobs, results, plans, real configs
 lab.json
 lab-*.json
+lab.y*ml
+lab-*.y*ml
 job*.json
+job*.y*ml
 result*.json
 plan*.json
 apply*.json
@@ -58,8 +61,10 @@ audit*.json
 cleanup*.json
 roster*.csv
 roster*.json
+roster*.y*ml
 students*.csv
 /rulesets/
+rules*.y*ml
 /runs/
 /local/
 /private/
@@ -80,4 +85,5 @@ ct.*
 
 # --- Tracked examples (must stay after the patterns above) ----------------
 !examples/**/*.json
+!examples/**/*.yaml
 !docs/examples/*.json

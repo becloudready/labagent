@@ -156,7 +156,7 @@ params:
   ssh_key_id: ${SHADEFORM_SSH_KEY_ID}
   hours: 4
   mode: mig
-  profile: auto
+  mig_profile: auto
   login_user: labagent
   login_sudo: false
 """
@@ -172,3 +172,34 @@ def test_a_typical_file_only_uses_parameters_the_real_pack_has(monkeypatch, tmp_
     assert s["params"]["ssh_key_id"] == "key-1"
     assert set(s["params"]) <= {p.name for p in GpuNotebooks().params}
     assert GpuNotebooks().resolve(s["params"])["login_sudo"] == "false"
+
+
+# ---- every real pack reads a launch file like its flags ----
+
+def test_every_real_pack_reads_a_launch_file_exactly_like_its_flags(tmp_path):
+    import yaml
+    for pid, pack in registry.all_packs().items():
+        params = {p.name: (p.default if p.default is not None else "sample") for p in pack.params}
+        flags = {k: ("true" if v is True else "false" if v is False else str(v)) for k, v in params.items()}
+        f = tmp_path / f"{pid}.yaml"
+        f.write_text(yaml.safe_dump({"pack": pid, "name": "t", "params": params}), encoding="utf-8")
+        loaded = spec.load(str(f))
+        assert loaded["params"] == flags, pid
+        assert pack.resolve(loaded["params"]) == pack.resolve(flags), pid
+
+
+def test_pack_parameter_names_are_unique_within_a_pack():
+    for pid, pack in registry.all_packs().items():
+        names = [p.name for p in pack.params]
+        assert len(names) == len(set(names)), pid
+
+
+def test_a_remote_job_can_set_the_slice_size_but_not_the_frameworks_profile(monkeypatch, tmp_path):
+    """`profile` is the cloud or Databricks identity, which a remote job may not choose. gpu-notebooks once used the same word for the MIG
+    slice size, which made the slice size impossible to set from a job."""
+    from labagent.run import run_pack_job
+    monkeypatch.setenv("LABAGENT_HOME", str(tmp_path / "home"))
+    job = {"run_id": "r1", "command": "launch", "pack": "gpu-notebooks", "name": "demo", "mode": "dry-run"}
+    assert run_pack_job({**job, "params": {"mig_profile": "2g.20gb"}}).status == "ok"
+    refused = run_pack_job({**job, "params": {"profile": "prod"}})
+    assert refused.status == "failed" and "may not set" in refused.error

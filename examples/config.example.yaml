@@ -1,0 +1,26 @@
+# labagent engine config (AWS lab accounts). Copy to lab.yaml, which git ignores, and edit.
+#   labagent --config lab.yaml run --job job.yaml
+# JSON works too: the file type is taken from the name (.yaml, .yml, anything else is JSON).
+# Keys left out take the defaults in labagent/config.py. An unknown key is an error, not ignored.
+
+region: us-east-1                  # where the IAM and Terraform calls go
+regions: [us-east-1]               # regions scanned for regional resources (CloudFront is global and is read via us-east-1)
+workshop: my-workshop              # the `workshop` tag value that marks lab resources
+name_prefix: labs                  # each cohort gets <name_prefix>-<cohort>-students, -sandbox and -lambda-exec
+student_domain: example.com
+password_reset_required: true      # false when the LMS is where learners read their first password
+
+# Safety: labagent refuses to run in any account not listed here. QUOTE every id: an unquoted one is a number, which is refused.
+# LABAGENT_ALLOWED_ACCOUNTS (comma separated) overrides this list.
+allowed_account_ids:
+  - "123456789012"
+
+# Terraform state. LABAGENT_TF_BACKEND_BUCKET, _REGION and _KMS_KEY_ID override these, so a private runner can set them as CI variables.
+backend:
+  bucket: my-org-labagent-state
+  region: us-east-1
+  kms_key_id: alias/my-org-labagent-state
+  use_lockfile: true
+
+plan_max_age_s: 21600              # an approved plan older than this is refused (6 hours)
+apply_time_budget_s: 1500

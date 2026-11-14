@@ -74,7 +74,7 @@ In a terminal the run is laid out for people: a banner, numbered steps with a li
 | `ssh_key_file` | Private key that matches `ssh_key_id` (default: whatever ssh finds) |
 | `hours` | The cloud deletes the VM after this long (1 to 72, default 4) |
 | `mode` | `mig` (default): one hardware-isolated MIG slice per lab, on H100, H200 and A100. `shared`: labs share the whole GPU with no isolation, for GPUs without MIG such as the RTX 5090. See [GPUs](#gpus) |
-| `profile` | `mig` only. Slice size. `auto` (default) is the smallest the GPU offers: `1g.10gb` on H100 and A100 80GB, `1g.5gb` on A100 40GB. Others: `1g.20gb` (4 per 80GB GPU), `2g.20gb` (3), `3g.40gb` (2) |
+| `mig_profile` | `mig` only. Slice size. `auto` (default) is the smallest the GPU offers: `1g.10gb` on H100 and A100 80GB, `1g.5gb` on A100 40GB. Others: `1g.20gb` (4 per 80GB GPU), `2g.20gb` (3), `3g.40gb` (2) |
 | `labs` | How many labs to start. `mig`: 0 = one per slice. `shared`: required. At most 99 |
 | `image` | Docker image per lab (default `quay.io/jupyter/pytorch-notebook:cuda12-latest`) |
 | `tls` | `letsencrypt` (default), `internal` (self-signed) or `none` (plain http: tokens travel in clear) |
@@ -89,7 +89,7 @@ In a terminal the run is laid out for people: a banner, numbered steps with a li
 |---|---|---|---|
 | H100 80GB | `mig` | 7 per GPU, 9.75 GiB each | Verified on one PCIe card. |
 | A100 80GB | `mig` | 7 per GPU, same slices as H100 | Not verified on real hardware yet. |
-| A100 40GB | `mig` | 7 per GPU, 4.75 GiB each (`1g.5gb`) | Not verified on real hardware yet. `profile: auto` picks the size: the H100 default `1g.10gb` does not exist on a 40GB card. |
+| A100 40GB | `mig` | 7 per GPU, 4.75 GiB each (`1g.5gb`) | Not verified on real hardware yet. `mig_profile: auto` picks the size: the H100 default `1g.10gb` does not exist on a 40GB card. |
 | RTX 5090, RTX 4090 | `shared` | Your choice, `labs=N` | No MIG, so no isolation. Not verified on real hardware yet. |
 
 Find what is available and what it costs with `labagent offers --gpu A100` (families: `A100` is the 40GB card, `A100_80G` the 80GB one).

@@ -1,0 +1,23 @@
+# A job: what the orchestrator asks labagent to do. Copy to job.yaml, which git ignores: a real roster is personal data.
+#   labagent --config lab.yaml run --job job.yaml --output result.json
+# Fields are listed in docs/job-contract.md. JSON works too (the file type comes from the name).
+
+run_id: "00000000-0000-0000-0000-000000000001"     # echoed back in the result
+command: provision
+mode: apply                                        # plan | apply | dry-run
+cohort:
+  id: demo-cohort-1
+  created_date: "01-Jan-2030"                      # dd-mmm-yyyy, matches the `date` tag
+
+learners:
+  # Quote a learner_id that is all digits: unquoted it is a number, and the contract wants text.
+  - learner_id: "1"
+    username: ada-example@example.com
+  - learner_id: "2"
+    username: alan-example@example.com
+
+# RSA public key. Passwords are encrypted to it (RSA-OAEP, SHA-256) and only its private half can read them.
+secrets_pubkey_pem: |
+  -----BEGIN PUBLIC KEY-----
+  ...
+  -----END PUBLIC KEY-----

@@ -1,0 +1,46 @@
+# A cleanup ruleset: which resources to keep and which to delete. Used by `audit` and `cleanup` jobs (docs/account-cleanup.md).
+#   labagent --config lab.yaml run --job job.yaml --ruleset rules.yaml
+# Keep real rulesets out of a public repo: they hold your resource names. JSON works too.
+#
+# A rule matches when ALL of its match keys do; a list means any entry. Keys: type, region, name (glob), id, name_regex,
+# tags, tags_absent, older_than_days, unused_days, attrs. Full contract: labagent/rules.py.
+
+version: 1
+name: legacy-cleanup-example
+
+rules:
+  - id: keep-admins
+    action: keep
+    reason: admin identities
+    match:
+      type: [iam/user]
+      name: ["admin-*", "ci-*"]
+
+  - id: keep-state-and-logs
+    action: keep
+    match:
+      type: [s3/bucket]
+      name: ["my-org-labagent-state-*", "my-org-audit-*"]
+
+  - id: old-cloudfront
+    action: delete
+    reason: idle student distributions without custom domains
+    match:
+      type: [cloudfront/distribution]
+      attrs: {aliases: 0}
+      older_than_days: 14
+
+  - id: orphan-generated-policies
+    action: delete
+    match:
+      type: [iam/policy]
+      name: ["AWSLambdaBasicExecutionRole-*"]
+      attrs: {attachments: 0}
+
+  - id: stale-key-pairs
+    action: delete
+    enabled: false                 # switched off: turn on after reviewing the audit
+    reason: enable after reviewing the audit
+    match:
+      type: [ec2/key-pair]
+      older_than_days: 30
