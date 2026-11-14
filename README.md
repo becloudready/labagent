@@ -34,6 +34,7 @@ Extras: `labagent[rag]` (Databricks RAG), `[rag-local]` (laptop RAG), `[rag-lab]
 | Pack | What it builds | Where |
 |---|---|---|
 | `azure-labs` | Copy Azure VMs, disks and network from one resource group to another with snapshots, or snapshot a dead VM or disk. Source is read-only. An Azure Lab Services alternative. [Guide](docs/azure-labs.md) | Azure (needs `az login`) |
+| `gpu-notebooks` | Rent a GPU VM (Shadeform) and give each GPU slice its own JupyterLab, with a URL and login per lab. [Guide](docs/gpu-notebooks.md) | Shadeform (API key) |
 | `redis-migrate` | Check whether a legacy Azure Cache for Redis (retiring) can be exported to Azure Managed Redis. Read only, creates nothing. Export and import come next. [Guide](docs/redis-migrate.md) | Azure (needs `az login`) |
 | `rag-sec-tutorial` | Nine notebooks: RAG on SEC 10-K filings with embeddings, pgvector, hybrid search, citations, an evaluation gate, a deployed app | Databricks Free Edition |
 | `db-agent` | [db-agent](https://github.com/db-agent/db-agent) text-to-SQL app on Databricks Apps, pinned commit. [Which model, warehouse and schema it picks](docs/packs.md) | Databricks Free Edition |
@@ -41,6 +42,8 @@ Extras: `labagent[rag]` (Databricks RAG), `[rag-local]` (laptop RAG), `[rag-lab]
 | `dbx-workspace` | Premium Databricks workspace via Terraform. Plan only unless `apply=yes`. [Guide](docs/dbx-workspace.md) | AWS or Azure (costs money) |
 | `aml` | Synthetic anti-money-laundering lab with an answer key: RAG for developers, Microsoft 365 Copilot for staff. [Guide](docs/aml.md) | Your machine |
 | `rag-ide` | Private browser VS Code per learner with the RAG lab | Modal, EC2 or Docker |
+
+Long commands can live in a YAML file: `labagent launch -f hackathon.yaml`, and `labagent destroy -f hackathon.yaml` removes the same lab. See [docs/launch-files.md](docs/launch-files.md).
 
 Also: `labagent rag init --dir ~/rag-lab` makes a laptop RAG lab of nine notebooks (needs `[rag-lab]`), and `labagent rag destroy --dir ~/rag-lab` removes it. See [docs/rag-local.md](docs/rag-local.md). AWS cohort sandboxes (Terraform IAM, plan-then-apply cleanup) run through `labagent run --job job.json`: see [docs/job-contract.md](docs/job-contract.md).
 
