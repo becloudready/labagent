@@ -23,8 +23,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..base import Pack, PackContext, PackError, Param, Step, save_state, state_dir
-from . import providers
-from .providers import GONE, Host, HostSpec
+from ...compute import providers
+from ...compute.providers import GONE, Host, HostSpec
 from .remote import SshRunner
 
 PACK_ID = "gpu-notebooks"

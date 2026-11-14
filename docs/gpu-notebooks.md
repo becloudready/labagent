@@ -19,32 +19,17 @@ Leave `vendor` and `region` out and the launch stops with the five cheapest avai
 
 ## See what is available first
 
-Two read-only commands answer "what can I launch right now, and what do I type?". They create and change nothing.
+`labagent compute offers --cloud shadeform --gpu H100` shows what you can launch right now, cheapest first, and what to type. `labagent compute ssh-keys --cloud shadeform` shows the `ssh_key_id` values. Both are read only. Commands, filters and the JSON for a console are in [compute.md](compute.md).
 
 ```bash
-labagent offers --gpu H100                      # available now, cheapest first, with the OS images each offer accepts
-labagent offers --gpu H100 --gpus 8 --all       # eight-GPU boxes, including the sold-out ones (STOCK column)
-labagent offers --vendor scaleway --max-price 5 --kind vm --limit 10
-labagent ssh-keys                               # the ssh_key_id values in your account
+labagent compute offers --cloud shadeform --gpu H100
+labagent compute offers --cloud shadeform --gpu H100 --gpus 8 --all       # eight-GPU boxes, including the sold-out ones
+labagent compute ssh-keys --cloud shadeform
 ```
 
-Filters: `--gpu` (family, e.g. H100), `--gpus` (count per machine), `--type` (the cloud's shape name, the `instance_type` param), `--vendor`, `--region`, `--kind` (vm, baremetal, container), `--max-price` (dollars per hour), `--limit`. Capacity changes within minutes, so look right before you launch. Only on-demand capacity is listed, never spot.
-
-Each row gives `vendor`, `region` and `instance_type` for `launch`, and the `os` values the offer accepts. `LABS` is the number of smallest MIG slices (7 per GPU on H100, H200 and A100), so an 8-GPU box shows 56. It is an estimate, and `-` means unknown or no MIG: an RTX 5090 shows `-` because there you choose `labs` yourself (`mode=shared`). Your `profile` must exist on that GPU: `nvidia-smi mig -lgip` on the VM lists them. Use `--kind vm` or `baremetal`: a `container` offer has no root, Docker or MIG.
+`LABS` is the number of smallest MIG slices (7 per GPU on H100, H200 and A100), so an 8-GPU box shows 56. It is an estimate, and `-` means unknown or no MIG: an RTX 5090 shows `-` because there you choose `labs` yourself (`mode=shared`). Your `mig_profile` must exist on that GPU: `nvidia-smi mig -lgip` on the VM lists them.
 
 `ssh_key_id` must be a key whose private half is on the machine running `labagent` (or give `ssh_key_file`). `Shadeform Managed Key` is created by Shadeform: the pack can log in with it only if you hold that private key.
-
-For a console or script, add `--json`. The shape is stable: keys are only ever added.
-
-```json
-{"cloud": "shadeform", "fetched_at": "2026-11-13T18:20:00Z", "count": 1, "returned": 1, "offers": [
-  {"instance_type": "H100", "vendor": "latitude", "region": "dallas-usa-1", "region_name": "US, Dallas, TX", "gpu_type": "H100",
-   "num_gpus": 1, "vram_gb": 80, "vcpus": 16, "memory_gb": 192, "storage_gb": 7600, "interconnect": "pcie", "kind": "baremetal",
-   "hourly_usd": 1.99, "available": true, "boot_seconds": 1020, "max_labs": 7, "os_options": ["ubuntu24.04_cuda12.4_shade_os"],
-   "launch": {"cloud": "shadeform", "instance_type": "H100", "vendor": "latitude", "region": "dallas-usa-1"}}]}
-```
-
-`launch` holds the pack parameters that select that offer. Add `os` from `os_options` and your `ssh_key_id`. `ssh-keys --json` gives `{"cloud", "fetched_at", "count", "ssh_keys": [{"id", "name", "is_default"}]}`. Key material is never returned. Errors go to stderr with exit code 2.
 
 ## What you see
 
@@ -92,7 +77,7 @@ In a terminal the run is laid out for people: a banner, numbered steps with a li
 | A100 40GB | `mig` | 7 per GPU, 4.75 GiB each (`1g.5gb`) | Not verified on real hardware yet. `mig_profile: auto` picks the size: the H100 default `1g.10gb` does not exist on a 40GB card. |
 | RTX 5090, RTX 4090 | `shared` | Your choice, `labs=N` | No MIG, so no isolation. Not verified on real hardware yet. |
 
-Find what is available and what it costs with `labagent offers --gpu A100` (families: `A100` is the 40GB card, `A100_80G` the 80GB one).
+Find what is available and what it costs with `labagent compute offers --cloud shadeform --gpu A100` (families: `A100` is the 40GB card, `A100_80G` the 80GB one).
 
 **A100: a reboot may happen.** On an A100, turning MIG on can need a GPU reset, which a VM often cannot do. The pack tries the reset, and if MIG is still not active it reboots the VM once, waits for it (up to 10 minutes), and carries on. You will see `rebooting the VM once` in the output. A second request for a reboot is a failure: destroy the VM and try another offer.
 
@@ -100,7 +85,7 @@ Find what is available and what it costs with `labagent offers --gpu A100` (fami
 
 ```bash
 labagent launch gpu-notebooks --name rtx-workshop --param instance_type=RTX5090 --param vendor=<vendor> --param region=<region> \
-    --param os=<os from labagent offers> --param ssh_key_id=<id> --param mode=shared --param labs=4
+    --param os=<os from labagent compute offers> --param ssh_key_id=<id> --param mode=shared --param labs=4
 ```
 
 ## The shared login
@@ -121,4 +106,4 @@ One H100 PCIe on Scaleway through Shadeform (`ubuntu24.04_cuda13.0_shade_os`, dr
 
 **MIG limit.** An H100 splits into at most 7 slices, so an 8-GPU box gives 56 labs, not 64.
 
-**Adding a cloud.** Subclass `Provider` in `labagent/packs/gpu_notebooks/providers.py` (offers, ssh_keys, validate, find, create, get, delete) and add it to `PROVIDERS`: its key becomes a value of `--param cloud`.
+**Adding a cloud.** Subclass `Provider` in `labagent/compute/providers.py` (offers, ssh_keys, validate, find, create, get, delete) and add it to `PROVIDERS`: its key becomes a value of `--param cloud`.
