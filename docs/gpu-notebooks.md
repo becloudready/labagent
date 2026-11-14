@@ -13,6 +13,8 @@ labagent launch gpu-notebooks --name nvidia-h100-hackathon \
 labagent destroy gpu-notebooks --name nvidia-h100-hackathon
 ```
 
+The same run from a file ([launch files](launch-files.md), [example](examples/gpu-notebooks-hackathon.yaml)): `labagent launch -f hackathon.yaml`, and `labagent destroy -f hackathon.yaml` to stop it.
+
 Leave `vendor` and `region` out and the launch stops with the five cheapest available offers for your `instance_type`.
 
 ## What it does

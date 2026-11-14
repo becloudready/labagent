@@ -44,6 +44,11 @@ def host_tag(name: str) -> str:
     return f"labagent:{PACK_ID}:{name}"[:200]
 
 
+def flag(value: Any) -> bool:
+    """A yes/no param: the command line gives text ('false' is not False), a launch file gives true or false."""
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 def lab_name(i: int) -> str:
     return f"lab-{i:02d}"
 
@@ -276,7 +281,7 @@ class GpuNotebooks(Pack):
         hostname = p["hostname"] or default_hostname(ctx.name)
         env = "".join(f"{k}='{v}'\n" for k, v in (("PROFILE", p["profile"]), ("IMAGE", p["image"]), ("TLS", p["tls"]), ("DOMAIN", domain),
                                                    ("LABS_DIR", f"{home}/labs"), ("LAB_HOSTNAME", hostname), ("LOGIN_USER", p["login_user"] or ""),
-                                                   ("LOGIN_SUDO", "yes" if p["login_sudo"] in (True, "true", "yes", "True") else "no")))
+                                                   ("LOGIN_SUDO", "yes" if flag(p["login_sudo"]) else "no")))
         self._remote(ctx, runner, f"sudo install -d -m 755 {INSTALL_DIR} && sudo tee {INSTALL_DIR}/labs.env >/dev/null", "writing the settings", stdin=env)
         self._remote(ctx, runner, f"sudo tee {SCRIPT} >/dev/null && sudo chmod 755 {SCRIPT}", "installing the lab installer", stdin=setup_script())
         out = self._remote(ctx, runner, f"sudo {SCRIPT} partition", "splitting the GPUs into MIG slices", timeout=600)
@@ -315,7 +320,7 @@ class GpuNotebooks(Pack):
             with f.open("w", encoding="utf-8", newline="") as fh:
                 w = csv.writer(fh)
                 w.writerow(["user", "password", "host", "ssh_command", "sudo"])
-                w.writerow([p["login_user"], pw, st["domain"], f"ssh {p['login_user']}@{st['domain']}", "yes" if p["login_sudo"] else "no"])
+                w.writerow([p["login_user"], pw, st["domain"], f"ssh {p['login_user']}@{st['domain']}", "yes" if flag(p["login_sudo"]) else "no"])
         return {"login_user": p["login_user"] or "", "login_file": str(f) if p["login_user"] else ""}
 
     def _tokens(self, ctx: PackContext, names: List[str]) -> Dict[str, str]:
@@ -418,7 +423,7 @@ class GpuNotebooks(Pack):
             pw = next(csv.DictReader(login_path(ctx.name).open(encoding="utf-8")))["password"]
             ctx.log("")
             ctx.log(f"Shell login to share: ssh {st['login_user']}@{st['domain']}   password: {pw}   (host name {st.get('hostname')}, file {st['login_file']})")
-            if p["login_sudo"]:
+            if flag(p["login_sudo"]):
                 ctx.log("This user has sudo and docker: that is root. Anyone with the password can read every lab's token and stop other labs.")
         if p["tls"] == "internal":
             ctx.log("The certificate is self-signed: the browser shows a warning once. Choose to continue.")

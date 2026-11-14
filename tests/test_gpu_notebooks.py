@@ -525,3 +525,13 @@ def test_access_script_repairs_an_account_made_by_hand():
     assert 'usermod -s /bin/bash "$LOGIN_USER"' in text                      # an existing user with /bin/sh
     assert 'install -d -m 755 -o "$LOGIN_USER"' in text and "/etc/skel/$f" in text   # a home that is missing or owned by root
     assert "runuser -u" in text and "PROMPT=set" in text                    # the prompt is proven by a real login shell, not assumed
+
+
+def test_yes_no_params_mean_the_same_from_the_command_line_and_from_a_file(home):
+    from labagent.packs.gpu_notebooks.pack import flag
+    assert [flag(v) for v in (True, "true", "True", "yes", "on", "1")] == [True] * 6
+    assert [flag(v) for v in (False, "false", "False", "no", "off", "", None)] == [False] * 7
+    ssh, logs = FakeSsh(), []
+    run("launch", FakeShadeform(), ssh=ssh, log=logs.append, params=launch_params(login_sudo="false"))     # the text a --param flag gives
+    assert "LOGIN_SUDO='no'" in settings(ssh)
+    assert next(csv.DictReader(open(login_path("t"), encoding="utf-8")))["sudo"] == "no" and "that is root" not in "\n".join(logs)

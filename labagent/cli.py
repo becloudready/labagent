@@ -34,13 +34,25 @@ def _packs_main(args) -> int:
         for pid, pk in sorted(registry.all_packs().items()):
             print(f"{pid:16} {pk.summary}")
         return 0
+    from . import spec as spec_mod
     try:
-        pack = registry.resolve(args.pack)
-        given = dict(kv.split("=", 1) for kv in args.param)
+        spec = spec_mod.load(args.file) if args.file else {"pack": None, "name": None, "params": {}}
+        token = args.pack or spec["pack"]
+        if not token:
+            print("error: give a pack name, or a launch file with -f", file=sys.stderr)
+            return 2
+        pack = registry.resolve(token)
+        if args.pack and spec["pack"] and registry.resolve(spec["pack"]).id != pack.id:
+            print(f"error: {args.file} is for the pack '{spec['pack']}', not '{args.pack}'", file=sys.stderr)
+            return 2
+        given = {**spec["params"], **dict(kv.split("=", 1) for kv in args.param)}       # flags win over the file
+    except spec_mod.SpecError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
     except (KeyError, ValueError) as e:
         print(f"error: {e.args[0] if e.args else e}", file=sys.stderr)
         return 2
-    name = args.name or pack.default_name
+    name = args.name or spec["name"] or pack.default_name
     if not name:
         print("error: --name is required for this pack", file=sys.stderr)
         return 2
@@ -116,7 +128,8 @@ def main(argv=None) -> int:
     dp.add_argument("--out", required=True, help="Output directory")
     for verb, text in (("launch", "Deploy a lab pack (idempotent: re-run to resume)"), ("destroy", "Remove what a pack created")):
         lp = sub.add_parser(verb, help=text)
-        lp.add_argument("pack")
+        lp.add_argument("pack", nargs="?", help="Pack id (or give it in the launch file)")
+        lp.add_argument("-f", "--file", metavar="FILE", help="YAML launch file with pack, name and params. Flags on the command line override it")
         lp.add_argument("--name", help="Instance name (state key and resource suffix); defaults to the pack's own default")
         lp.add_argument("--param", action="append", default=[], metavar="KEY=VALUE", help="Pack parameter, repeatable")
         lp.add_argument("--dry-run", action="store_true", help="Show the steps without running them")

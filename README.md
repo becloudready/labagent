@@ -42,6 +42,8 @@ Extras: `labagent[rag]` (Databricks RAG), `[rag-local]` (laptop RAG), `[rag-lab]
 | `aml` | Synthetic anti-money-laundering lab with an answer key: RAG for developers, Microsoft 365 Copilot for staff. [Guide](docs/aml.md) | Your machine |
 | `rag-ide` | Private browser VS Code per learner with the RAG lab | Modal, EC2 or Docker |
 
+Long commands can live in a YAML file: `labagent launch -f hackathon.yaml`, and `labagent destroy -f hackathon.yaml` removes the same lab. See [docs/launch-files.md](docs/launch-files.md).
+
 Also: `labagent rag init --dir ~/rag-lab` makes a laptop RAG lab of nine notebooks (needs `[rag-lab]`), and `labagent rag destroy --dir ~/rag-lab` removes it. See [docs/rag-local.md](docs/rag-local.md). AWS cohort sandboxes (Terraform IAM, plan-then-apply cleanup) run through `labagent run --job job.json`: see [docs/job-contract.md](docs/job-contract.md).
 
 ## Azure: move VMs between resource groups
