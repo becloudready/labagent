@@ -1,0 +1,44 @@
+<!--
+  Source of docs/social-preview.png, the card shown when the repo link is shared.
+  GitHub stores the card in the repo settings, not in this file: after changing it,
+  upload the PNG at Settings > General > Social preview.
+  Render (Chrome, 1280x640):
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --hide-scrollbars \
+      --force-device-scale-factor=1 --window-size=1280,640 --screenshot=docs/social-preview.png \
+      "file://$PWD/docs/social-preview.html"
+-->
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>labagent social preview</title>
+<style>
+  :root { --bg:#0d1017; --card:#020409; --line:#1f242c; --gray:#8b93a0; --blue:#58a6ff; --orange:#d4570f; --green:#3fb950; --white:#f0f3f6; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 640px; background: var(--bg); overflow: hidden; }
+  body { font-family: "JetBrains Mono", "SF Mono", Menlo, "DejaVu Sans Mono", monospace; color: var(--white); position: relative; }
+  .bar { position: absolute; top: 0; left: 0; width: 1280px; height: 6px; background: linear-gradient(90deg, #0b72d8 0 70%, #c8500a 70% 100%); }
+  .head { position: absolute; left: 64px; top: 52px; display: flex; align-items: baseline; gap: 18px; }
+  .head h1 { font-size: 60px; font-weight: 800; letter-spacing: -1px; }
+  .head p { font-size: 24px; color: var(--gray); }
+  .term { position: absolute; left: 64px; top: 143px; width: 1152px; height: 330px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 28px 36px; }
+  .dots { display: flex; gap: 10px; margin-bottom: 20px; }
+  .dots i { width: 14px; height: 14px; border-radius: 50%; background: #30363d; display: block; }
+  .l { font-size: 27px; line-height: 46px; white-space: nowrap; }
+  .l.gap { margin-top: 10px; }
+  .p { color: var(--orange); } .c { color: var(--blue); } .g { color: var(--gray); } .ok { color: var(--green); }
+  .foot { position: absolute; left: 64px; right: 64px; bottom: 44px; display: flex; justify-content: space-between; align-items: center; }
+  .foot .url { font-size: 24px; color: var(--gray); }
+  .badge { border: 2px solid #1f6fd0; border-radius: 10px; padding: 10px 24px; font-size: 32px; font-weight: 800; background: #05070c; }
+  .badge b { color: var(--orange); }
+</style></head>
+<body>
+  <div class="bar"></div>
+  <div class="head"><h1>labagent</h1><p>hands-on labs: one command to launch, one to remove</p></div>
+  <div class="term">
+    <div class="dots"><i></i><i></i><i></i></div>
+    <div class="l"><span class="p">$</span> <span class="c">labagent launch</span> gpu-notebooks --name demo --param cloud=auto</div>
+    <div class="l g">preflight host setup access labs verify report</div>
+    <div class="l ok">done: 7 JupyterLabs on one H100, a login for each</div>
+    <div class="l gap"><span class="p">$</span> <span class="c">labagent destroy</span> gpu-notebooks --name demo</div>
+    <div class="l ok">removed: GPU VM and every notebook</div>
+  </div>
+  <div class="foot"><span class="url">github.com/becloudready/labagent</span><span class="badge">One H100: <b>7 labs</b></span></div>
+</body></html>
