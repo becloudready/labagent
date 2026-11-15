@@ -6,6 +6,8 @@ To add a cloud: subclass `Provider`, implement its methods, set `id`, `title`, `
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
 import re
@@ -56,7 +58,8 @@ class HostSpec:
     region: Optional[str] = None
     os_image: Optional[str] = None
     ssh_key_id: Optional[str] = None
-    hours: int = 4                  # the provider deletes the host after this long, so a forgotten lab cannot bill for days
+    hours: int = 4                  # the provider deletes the host after this long, so a forgotten lab cannot bill for days (auto_delete clouds only)
+    ssh_public_key: Optional[str] = None   # clouds with no key list (key_registry False) install this PUBLIC key on the host when it is created
     shade_cloud: bool = True
     tags: List[str] = field(default_factory=list)
 
@@ -105,10 +108,11 @@ class Offer:
     kind: str = ""
     boot_seconds: int = 0                   # the slowest the cloud says it can take
     os_options: List[str] = field(default_factory=list)
+    area_hint: str = ""                     # set by a cloud whose region names carry no country code (Lambda); wins over the name
 
     @property
     def area(self) -> str:
-        return area_of(self.region_name)
+        return self.area_hint or area_of(self.region_name)
 
 
 @dataclass
@@ -116,6 +120,19 @@ class SshKey:
     id: str
     name: str
     is_default: bool = False
+    fingerprint: str = ""                   # SHA256:... of the PUBLIC half, so a person can match it to a file. Never the key itself
+
+
+def fingerprint_of(public_key: str) -> str:
+    """`SHA256:<base64>` of one OpenSSH public key line (what `ssh-keygen -lf` prints), or '' if it is not one."""
+    parts = str(public_key or "").split()
+    if len(parts) < 2:
+        return ""
+    try:
+        blob = base64.b64decode(parts[1], validate=True)
+    except (ValueError, TypeError):
+        return ""
+    return "SHA256:" + base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip("=") if blob else ""
 
 
 class Provider:
@@ -123,7 +140,15 @@ class Provider:
     title = ""                              # what a person calls it
     capabilities: Tuple[str, ...] = ()      # any of: offers, ssh_keys, launch
     env_var = ""                            # where its API key may be set; the same key may also live in the credentials file
+    key_file = ""                           # optional: a file under ~/.labagent/keys/ that holds just the API key
+    auto_delete = True                      # does the cloud delete a host by itself after `hours`? False: only labagent can, so say so
+    key_registry = True                     # does the account keep a list of SSH keys? False: the key is installed on each host when it is created
     warnings: List[str]
+
+    @classmethod
+    def extra_credentials(cls) -> Optional[str]:
+        """Where else this cloud could get a login than env_var, the credentials file and key_file (a service account file, a command line tool). None: nowhere."""
+        return None
 
     def offers(self, query: OfferQuery) -> List[Offer]:
         """Read only. Every shape that matches, cheapest first, one entry per region."""
@@ -131,6 +156,10 @@ class Provider:
 
     def ssh_keys(self) -> List[SshKey]:
         """Read only. The SSH keys already added to the account. Never returns key material."""
+        raise NotImplementedError
+
+    def add_ssh_key(self, name: str, public_key: str) -> Tuple[SshKey, bool]:
+        """Register a PUBLIC key with the account. Returns (key, newly_added): a key already there is reused, never added twice."""
         raise NotImplementedError
 
     def validate(self, spec: HostSpec) -> Dict[str, Any]:
@@ -158,34 +187,53 @@ def credentials_path() -> Path:
     return Path(os.environ.get("LABAGENT_HOME") or Path.home() / ".labagent") / "credentials"
 
 
-def read_secret(section: str, env_var: str, path: Optional[Path] = None) -> Tuple[Optional[str], List[str]]:
-    """The environment variable wins. Otherwise the [section] of the credentials file: either `key = value` or a bare value line.
-    Returns (secret or None, warnings). A file other users can read gets a warning, never an error."""
+def keys_dir() -> Path:
+    return Path(os.environ.get("LABAGENT_HOME") or Path.home() / ".labagent") / "keys"
+
+
+def _loose(p: Path) -> bool:
+    return bool(p.stat().st_mode & (stat.S_IRWXG | stat.S_IRWXO))
+
+
+def find_secret(section: str, env_var: str, path: Optional[Path] = None, key_file: str = "") -> Tuple[Optional[str], Optional[str], List[str]]:
+    """(secret or None, where it came from, warnings). The environment variable wins. Then the [section] of the credentials file:
+    either `key = value` or a bare value line. Then, if the cloud has one, the file ~/.labagent/keys/<key_file> holding just the key.
+    A file other users can read gets a warning, never an error."""
     if os.environ.get(env_var):
-        return os.environ[env_var].strip(), []
-    p = path or credentials_path()
-    if not p.is_file():
-        return None, []
+        return os.environ[env_var].strip(), "environment", []
     warnings: List[str] = []
-    if p.stat().st_mode & (stat.S_IRWXG | stat.S_IRWXO):
-        warnings.append(f"{p} is readable by other users: run chmod 600 on it")
-    current = None
-    for raw in p.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        m = re.fullmatch(r"\[([^\]]+)\]", line)
-        if m:
-            current = m.group(1).strip().lower()
-            continue
-        if current != section.lower():
-            continue
-        kv = re.fullmatch(r"([A-Za-z_][\w.-]*)\s*[=:]\s*(.+)", line)
-        value = kv.group(2) if kv else line
-        value = value.strip().strip("'\"")
-        if value:
-            return value, warnings
-    return None, warnings
+    p = path or credentials_path()
+    if p.is_file():
+        if _loose(p):
+            warnings.append(f"{p} is readable by other users: run chmod 600 on it")
+        current = None
+        for raw in p.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            m = re.fullmatch(r"\[([^\]]+)\]", line)
+            if m:
+                current = m.group(1).strip().lower()
+                continue
+            if current != section.lower():
+                continue
+            kv = re.fullmatch(r"([A-Za-z_][\w.-]*)\s*[=:]\s*(.+)", line)
+            value = kv.group(2) if kv else line
+            value = value.strip().strip("'\"")
+            if value:
+                return value, "credentials file", warnings
+    kf = keys_dir() / key_file if key_file else None
+    if kf is not None and kf.is_file():
+        value = kf.read_text(encoding="utf-8").strip().strip("'\"")
+        if value and "\n" not in value:
+            return value, "key file", warnings + ([f"{kf} is readable by other users: run chmod 600 on it"] if _loose(kf) else [])
+    return None, None, warnings
+
+
+def read_secret(section: str, env_var: str, path: Optional[Path] = None, key_file: str = "") -> Tuple[Optional[str], List[str]]:
+    """(secret or None, warnings): see find_secret."""
+    value, _, warnings = find_secret(section, env_var, path, key_file)
+    return value, warnings
 
 
 # ---- Shadeform --------------------------------------------------------------------------------------------------------
@@ -311,8 +359,27 @@ class ShadeformProvider(Provider):
             data = self._call("GET", "/v1/sshkeys")
         except ApiError as e:
             raise self._fail(e, "list SSH keys")
-        return [SshKey(id=str(k["id"]), name=str(k.get("name") or ""), is_default=bool(k.get("is_default")))
+        # Only the public half is read, and only to compute its fingerprint. A `private_key` field (Shadeform keeps the private half
+        # of keys it generated) is never looked at.
+        return [SshKey(id=str(k["id"]), name=str(k.get("name") or ""), is_default=bool(k.get("is_default")),
+                       fingerprint=fingerprint_of(k.get("public_key") or ""))
                 for k in data.get("ssh_keys", []) if k.get("id")]
+
+    def add_ssh_key(self, name: str, public_key: str) -> Tuple[SshKey, bool]:
+        want = fingerprint_of(public_key)
+        if not want:
+            raise ComputeError("that is not an OpenSSH public key line (expected: ssh-ed25519 AAAA... comment)")
+        for k in self.ssh_keys():
+            if k.fingerprint == want:
+                return k, False
+        line = " ".join(public_key.split()[:3])                 # type, key and comment: no newline, nothing else
+        try:
+            data = self._call("POST", "/v1/sshkeys/add", {"name": name, "public_key": line})
+        except ApiError as e:
+            raise self._fail(e, "add the SSH key")
+        if not data.get("id"):
+            raise ComputeError("Shadeform accepted the SSH key but returned no id: run `labagent compute ssh-keys --cloud shadeform` to find it")
+        return SshKey(id=str(data["id"]), name=name, fingerprint=want), True
 
     def validate(self, spec: HostSpec) -> Dict[str, Any]:
         if not NAME_RE.fullmatch(spec.name):
@@ -372,7 +439,10 @@ class ShadeformProvider(Provider):
             raise self._fail(e, "delete the instance")
 
 
-PROVIDERS: Dict[str, Callable[[], Provider]] = {"shadeform": ShadeformProvider}
+from .lambda_cloud import LambdaProvider  # noqa: E402  (after the names it imports from this module exist)
+from .nebius import NebiusProvider  # noqa: E402
+
+PROVIDERS: Dict[str, Callable[[], Provider]] = {"shadeform": ShadeformProvider, "lambda": LambdaProvider, "nebius": NebiusProvider}
 
 
 def make(provider_id: str) -> Provider:
@@ -392,11 +462,15 @@ def catalog() -> List[Dict[str, Any]]:
     for cid in sorted(PROVIDERS):
         what = PROVIDERS[cid]
         env_var = getattr(what, "env_var", "")
-        key, warnings = read_secret(cid, env_var) if env_var else (None, [])
-        source = None
-        if key:
-            source = "environment" if os.environ.get(env_var) else "credentials file"
+        key_file = getattr(what, "key_file", "")
+        key, source, warnings = find_secret(cid, env_var, key_file=key_file) if env_var else (None, None, [])
+        if not key and hasattr(what, "extra_credentials"):
+            extra = what.extra_credentials()
+            if extra:
+                key, source = extra, extra
+        creds = {"configured": bool(key), "source": source, "env_var": env_var or None, "file": _shown(credentials_path()), "section": cid}
+        if key_file:
+            creds["key_file"] = _shown(keys_dir() / key_file)
         out.append({"id": cid, "title": getattr(what, "title", "") or cid, "capabilities": list(getattr(what, "capabilities", ())),
-                    "credentials": {"configured": bool(key), "source": source, "env_var": env_var or None, "file": _shown(credentials_path()), "section": cid},
-                    "warnings": warnings})
+                    "credentials": creds, "warnings": warnings})
     return out

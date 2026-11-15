@@ -1,4 +1,5 @@
 """gpu-notebooks: the provider layer and the host lifecycle, against a fake Shadeform API (no network, no key, no cost)."""
+import base64
 import csv
 import fnmatch
 import json
@@ -19,6 +20,9 @@ from labagent.packs.gpu_notebooks.pack import GpuNotebooks, credentials_path, de
 from tests.test_packaging import patterns
 
 KEY = "sf-test-key-0123456789"
+PUB1 = "ssh-ed25519 " + base64.b64encode(b"labagent-test-key-one").decode() + " test@labagent"      # not a real key: only its bytes are hashed
+PUB2 = "ssh-ed25519 " + base64.b64encode(b"labagent-test-key-two").decode() + " other@labagent"
+FP1, FP2 = providers.fingerprint_of(PUB1), providers.fingerprint_of(PUB2)
 TYPES = {"instance_types": [
     {"shade_instance_type": "H100", "cloud": "massedcompute", "hourly_price": 273,
      "configuration": {"os_options": ["ubuntu22.04_cuda13.0_shade_os"]},
@@ -38,9 +42,16 @@ class FakeShadeform:
         self.calls = []
         self.statuses = list(statuses)
         self.n = 0
+        self.keys = [{"id": "key-1", "name": "labagent-test", "is_default": False, "public_key": PUB1},
+                     {"id": "key-2", "name": "Shadeform Managed Key", "is_default": True, "public_key": PUB2}]
 
     def __call__(self, method, path, body=None):
         self.calls.append((method, path, body))
+        if method == "GET" and path == "/v1/sshkeys":
+            return {"ssh_keys": self.keys}
+        if method == "POST" and path == "/v1/sshkeys/add":
+            self.keys.append({"id": f"key-{len(self.keys) + 1}", "name": body["name"], "is_default": False, "public_key": body["public_key"]})
+            return {"id": self.keys[-1]["id"]}
         if path.startswith("/v1/instances/types"):
             return TYPES
         if method == "POST" and path == "/v1/instances/create":
@@ -140,7 +151,8 @@ class FakeSsh:
 
 def svc(api, ssh=None, public=200, **extra):
     prov = ShadeformProvider(http=api) if api is not None else None
-    return {"provider": lambda pid: prov, "sleep": lambda s: None, "ssh": ssh or FakeSsh(), "http_get": lambda url, verify: public, **extra}
+    return {"provider": lambda pid: prov, "sleep": lambda s: None, "ssh": ssh or FakeSsh(), "http_get": lambda url, verify: public,
+            "private_fingerprint": lambda path: FP1, **extra}      # the key file on this machine is the private half of key-1
 
 
 def run(action, api, name="t", params=None, log=None, **extra):
@@ -228,9 +240,9 @@ def test_create_request_matches_the_documented_call(home):
 
 def test_optional_fields_are_left_out_not_sent_as_null(home):
     api = FakeShadeform()
-    run("launch", api, params={"vendor": "massedcompute", "region": "desmoines-usa-1"})
+    run("launch", api, params={"vendor": "massedcompute", "region": "desmoines-usa-1", "ssh_key_id": "key-1"})
     (_, _, body), = api.creates()
-    assert "os" not in body and "ssh_key_id" not in body
+    assert "os" not in body and body["ssh_key_id"] == "key-1"
 
 
 def test_rerun_after_success_creates_nothing_more(home):
@@ -243,7 +255,7 @@ def test_rerun_after_success_creates_nothing_more(home):
 def test_timeout_keeps_the_id_and_rerun_resumes_without_a_second_vm(home):
     api = FakeShadeform(statuses=("pending",))
     ticks = iter(range(0, 100000, 400))
-    env = run("launch", api, clock=lambda: next(ticks))
+    env = run("launch", api, clock=lambda: next(ticks), params=launch_params(keep_on_failure="yes"))     # debugging: leave the VM running
     assert env.status == "failed" and "not active yet" in json.dumps(env.to_dict())
     assert load_state("gpu-notebooks", "t")["host_id"] == "inst-1"       # saved before the wait
     api.statuses = ["active"]

@@ -25,7 +25,14 @@ def api(monkeypatch):
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("LABAGENT_HOME", str(tmp_path))
     monkeypatch.delenv("SHADEFORM_API_KEY", raising=False)
+    monkeypatch.delenv("LAMBDA_API_KEY", raising=False)
     return tmp_path
+
+
+def _cloud(capsys, cloud_id):
+    assert cli.main(["compute", "clouds", "--json"]) == 0
+    raw = capsys.readouterr().out
+    return next(c for c in json.loads(raw)["clouds"] if c["id"] == cloud_id), raw
 
 
 # ---- clouds ----
@@ -43,13 +50,11 @@ def test_clouds_json_says_what_each_cloud_can_do_and_never_shows_a_key(home, mon
 
 
 def test_clouds_knows_where_the_key_comes_from_and_when_it_is_missing(home, monkeypatch, capsys):
-    assert cli.main(["compute", "clouds", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["clouds"][0]["credentials"]["configured"] is False
+    assert _cloud(capsys, "shadeform")[0]["credentials"]["configured"] is False
     (home / "credentials").write_text("[shadeform]\nkey = sk-file-secret\n")
     (home / "credentials").chmod(0o600)
-    assert cli.main(["compute", "clouds", "--json"]) == 0
-    raw = capsys.readouterr().out
-    assert json.loads(raw)["clouds"][0]["credentials"]["source"] == "credentials file" and "sk-file-secret" not in raw
+    sf, raw = _cloud(capsys, "shadeform")
+    assert sf["credentials"]["source"] == "credentials file" and "sk-file-secret" not in raw
 
 
 def test_clouds_table_names_the_fix_when_a_key_is_missing(home, capsys):
@@ -128,7 +133,7 @@ def test_the_old_top_level_commands_are_gone(capsys):
 def test_the_library_answers_without_any_printing(api, capsys):
     got = compute.make("shadeform").offers(compute.OfferQuery(gpu_type="H100"))
     assert [o.vendor for o in got] == ["alpha", "beta"] and capsys.readouterr().out == ""
-    assert [c["id"] for c in compute.catalog()] == ["shadeform"]
+    assert [c["id"] for c in compute.catalog()] == ["lambda", "nebius", "shadeform"]
 
 
 def test_a_compute_error_is_a_pack_error_so_packs_show_it_unchanged():

@@ -1,4 +1,5 @@
 """`labagent compute offers` and `labagent compute ssh-keys`: parsing, filtering, output shape and exit codes, against a fake API."""
+import base64
 import json
 from urllib.parse import parse_qs, urlparse
 
@@ -29,7 +30,8 @@ TYPES = {"instance_types": [
     shape("delta", "A100_80Gx2", "A100_80G", 2, 250, [("us-3", True, "on_demand")], kind="container"),
 ]}
 KEYS = {"ssh_keys": [{"id": "key-1", "name": "laptop", "is_default": False, "public_key": "ssh-ed25519 AAAA-should-never-be-printed"},
-                     {"id": "key-2", "name": "Managed", "is_default": True, "public_key": "ssh-ed25519 BBBB"}]}
+                     {"id": "key-2", "name": "Managed", "is_default": True, "public_key": "ssh-ed25519 " + base64.b64encode(b"key-two").decode() + " me@x",
+                      "private_key": "-----BEGIN OPENSSH PRIVATE KEY----- SECRET"}]}
 
 
 class Fake:
@@ -140,7 +142,7 @@ def test_ssh_keys_never_carry_key_material():
     p, _ = provider()
     keys = p.ssh_keys()
     assert [(k.id, k.name, k.is_default) for k in keys] == [("key-1", "laptop", False), ("key-2", "Managed", True)]
-    assert "AAAA" not in repr(keys)
+    assert "AAAA" not in repr(keys) and "SECRET" not in repr(keys) and "a2V5LXR3bw" not in repr(keys)      # a fingerprint, never the key
 
 
 def test_the_pack_check_still_refuses_with_a_menu_that_points_at_offers():
@@ -238,11 +240,13 @@ def test_the_next_command_is_safe_to_paste_into_a_shell(monkeypatch, capsys):
 def test_ssh_keys_table_and_json(api, capsys):
     assert cli.main(["compute", "ssh-keys", "--cloud", "shadeform"]) == 0
     out = capsys.readouterr().out
-    assert "key-1" in out and "laptop" in out and "Managed" in out and "AAAA" not in out and "BBBB" not in out
+    assert "key-1" in out and "laptop" in out and "Managed" in out and "AAAA" not in out and "SECRET" not in out and "a2V5LXR3bw" not in out
+    assert providers.fingerprint_of(KEYS["ssh_keys"][1]["public_key"]) in out
     assert cli.main(["compute", "ssh-keys", "--cloud", "shadeform", "--json"]) == 0
     doc = json.loads(capsys.readouterr().out)
-    assert doc["ssh_keys"] == [{"id": "key-1", "name": "laptop", "is_default": False}, {"id": "key-2", "name": "Managed", "is_default": True}]
-    assert "AAAA" not in json.dumps(doc)
+    assert doc["ssh_keys"] == [{"id": "key-1", "name": "laptop", "is_default": False, "fingerprint": ""},          # not a real key line: no fingerprint
+                               {"id": "key-2", "name": "Managed", "is_default": True, "fingerprint": providers.fingerprint_of(KEYS["ssh_keys"][1]["public_key"])}]
+    assert "AAAA" not in json.dumps(doc) and "SECRET" not in json.dumps(doc) and "PRIVATE" not in json.dumps(doc)
 
 
 def test_no_keys_in_the_account(monkeypatch, capsys):
@@ -253,7 +257,7 @@ def test_no_keys_in_the_account(monkeypatch, capsys):
 
 @pytest.mark.parametrize("argv,message", [
     (["compute", "offers", "--cloud", "nowhere"], "unknown cloud"),
-    (["compute", "offers"], "--cloud is required. Available: shadeform"),
+    (["compute", "offers"], "--cloud is required. Available: lambda, nebius, shadeform"),
     (["compute", "ssh-keys"], "--cloud is required"),
     (["compute", "offers", "--cloud", "shadeform", "--limit", "0"], "--limit must be 1 or more"),
     (["compute", "offers", "--cloud", "shadeform", "--gpus", "0"], "--gpus must be 1 or more"),

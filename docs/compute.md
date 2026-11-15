@@ -1,13 +1,16 @@
 # labagent compute
 
-Read-only commands that answer "what can I rent, from whom, for how much, and what do I type into `launch`?". They create and change nothing. The cloud is always named: there is no default.
+Commands that answer "what can I rent, from whom, for how much, and what do I type into `launch`?". They create and change nothing, except `ssh-key-add`, which adds one public SSH key to your cloud account (free, and you can delete it there). The cloud is always named: there is no default.
 
 ```bash
 labagent compute clouds                                          # which clouds are wired in, and whether each one's key is set
 labagent compute offers --cloud shadeform --gpu H100             # available now, cheapest first, with the OS images each offer accepts
 labagent compute offers --cloud shadeform --gpu H100 --gpus 8 --all
 labagent compute offers --cloud shadeform --vendor scaleway --max-price 5 --kind vm --limit 10
-labagent compute ssh-keys --cloud shadeform                      # the ssh_key_id values in that account
+labagent compute ssh-keys --cloud shadeform                      # the ssh_key_id values in that account, with each key's fingerprint
+labagent compute ssh-key-add --cloud all --name labagent         # make ~/.labagent/keys/labagent_ed25519 if missing, add its public half to EVERY cloud
+labagent compute offers --cloud lambda --gpu H100                # the same commands work on every cloud: see Lambda below
+labagent compute offers --cloud nebius --gpu H100                # Nebius: see Nebius below (needs NEBIUS_PROJECT_ID)
 ```
 
 Every table starts with whose answer it is: `Shadeform . GPU offers . on-demand, available now, 2 offers, cheapest first . fetched 18:20Z`.
@@ -16,9 +19,36 @@ Every table starts with whose answer it is: `Shadeform . GPU offers . on-demand,
 |---|---|
 | `compute clouds` | The clouds this install can talk to, what each can do (`offers`, `ssh-keys`, `launch`), and whether its API key is set (never the key) |
 | `compute offers --cloud C` | Shapes you can rent from cloud `C` |
-| `compute ssh-keys --cloud C` | SSH keys already in your account at `C` |
+| `compute ssh-keys --cloud C` | SSH keys already in your account at `C`: id, name, whether it is the account default, and its SHA256 fingerprint. Never the key |
+| `compute ssh-key-add --cloud C --name N [--file PATH]` | Makes an ed25519 key at `PATH` (default `~/.labagent/keys/labagent_ed25519`, the same file for every cloud, no passphrase, mode 0600) if the file does not exist, never overwrites one, and adds only its public half to the account. A key already there is reused. `--cloud all` does it for every cloud whose API key is set (others are skipped, and one failing does not stop the rest; exit 2 if any failed). Launches find the key by fingerprint, so the `ssh_key_id` it prints is optional |
 
-`--cloud` is required. `labagent compute clouds` lists the values. A key comes from the cloud's environment variable (Shadeform: `SHADEFORM_API_KEY`) or `~/.labagent/credentials`, and is only ever sent to that cloud.
+`--cloud` is required. `labagent compute clouds` lists the values. A key comes from the cloud's environment variable (Shadeform: `SHADEFORM_API_KEY`, Lambda: `LAMBDA_API_KEY`, Nebius: `NEBIUS_IAM_TOKEN`, see Nebius below), then the cloud's section of `~/.labagent/credentials`, then, for Lambda, the file `~/.labagent/keys/lambda_api_key` holding just the key. It is only ever sent to that cloud. A key file other users can read gets a warning: `chmod 600` it.
+
+## Nebius
+
+`--cloud nebius` is Nebius AI Cloud (REST API at `api.nebius.cloud`). It differs from the other two in ways you will see:
+
+- **A project is one region.** Everything is created inside a Nebius project, and a project belongs to one region (`eu-north1`, `us-central1`, ...). Set the project with `NEBIUS_PROJECT_ID` (it looks like `project-e00...`) or put it in `~/.labagent/keys/nebius_project_id`. The offers show that region, and `--region`/`--location` only match it. To rent in another region, point `NEBIUS_PROJECT_ID` at a project there. The VM goes in the project's default subnet with a public address (override with `NEBIUS_SUBNET_ID`). The project's default security group lets all traffic in, so SSH, 80 and 443 reach the VM with nothing to open.
+- **Login: three ways, first found.** (1) A 12 hour token: `NEBIUS_IAM_TOKEN`, `[nebius]` in `~/.labagent/credentials`, or the file `~/.labagent/keys/nebius_iam_token`; make one with `nebius iam get-access-token`. (2) A service account, for a machine that runs unattended: a JSON file `~/.labagent/keys/nebius_service_account.json` (or `NEBIUS_SERVICE_ACCOUNT_FILE`) holding `{"service_account_id": "...", "public_key_id": "...", "private_key_file": "path to the PEM"}`. labagent signs a 5 minute JWT with `openssl` and exchanges it for a token, as [Nebius describes](https://docs.nebius.com/rest-api/authentication). (3) The `nebius` command line tool, if it is installed and set up: labagent runs `nebius iam get-access-token`.
+- **Shapes.** A Nebius shape is a platform and a preset, written `platform/preset`: `gpu-h100-sxm/1gpu-16vcpu-200gb`. `--type H100` is the one-GPU H100 preset and `H100x8` the eight-GPU one, the same words as on the other clouds. Offered: H100, H200 and B200, the families whose price is known (below). The CPU platforms and other GPUs are left out.
+- **Prices are list prices.** The Nebius API has no price list, so the prices are Nebius's public **on-demand** list prices per GPU-hour, copied from [nebius.com/prices](https://nebius.com/prices) on 2026-11-14: H100 $4.50, H200 $5.40, B200 $8.50, times the number of GPUs. They are only used for the price ceiling and the estimate shown first. Nebius's own bill is what counts. VMs are never **preemptible**: a preemptible (spot) VM is cheaper but Nebius can stop it in the middle of a class.
+- **Capacity.** Nebius shows no capacity, only what the project may use, so every offer reads as available. A launch that finds no capacity or quota fails within seconds with Nebius's own message, before anything is billed.
+- **No SSH key list.** There is nothing to add a key to. The key is installed on the VM when it is created (cloud-init), for the user `ubuntu`, from the PUBLIC half of the private file you launch with (`ssh_key_file`, `LABAGENT_SSH_KEY_FILE`, or the shared `~/.labagent/keys/labagent_ed25519`). `ssh_key_id` is ignored, `labagent compute ssh-keys --cloud nebius` says so, and `ssh-key-add --cloud all` skips Nebius with that reason. The shared key still works: make it once with `ssh-key-add --cloud all`.
+- **Image.** The default family is `ubuntu24.04-cuda13.0` (NVIDIA driver and CUDA). `ubuntu24.04-driverless` is the other family in Nebius's docs, and any other family name can be passed as `os`. The boot disk is 300 GiB network SSD, created with the VM and **deleted with it**.
+- **No automatic deletion.** Nebius has no setting that deletes a VM after some hours, so `hours` cannot be enforced by the cloud. A Nebius VM bills until you `destroy` it. A launch that fails still deletes its own VM.
+
+## Lambda
+
+`--cloud lambda` is Lambda Cloud (formerly Lambda Labs, API at `cloud.lambda.com`). It differs from Shadeform in ways you will see:
+
+- **One company, so no vendor.** The `vendor` of every offer is `lambda`, and you pick a `region` such as `us-west-3`. `--location europe | north-america | asia-pacific` works too (from the region code).
+- **Shapes.** `--type` takes Lambda's own name (`gpu_1x_h100_pcie`) or the shape other clouds use: `H100` is the cheapest one-GPU H100, `H100x8` the eight-GPU one. Only x86 GPU shapes are listed: the ARM GH200 is left out because the lab image is for x86. Sold-out shapes (`--all`) show no region, because Lambda lists capacity per shape.
+- **Images.** The default is `lambda-stack-24-04` (Ubuntu with the NVIDIA driver and CUDA). Others: `gpu-base-24-04`, `lambda-stack-22-04`, `gpu-base-22-04`. The login user is `ubuntu`.
+- **SSH keys are chosen by name at launch.** The `ssh_key_id` you pass is looked up in the account, and its name is sent. `ssh-key-add` sends only the public half, so Lambda never generates a pair (and never has a private key to hand back).
+- **No automatic deletion.** Lambda has no setting that deletes an instance after some hours, so `hours` cannot be enforced by the cloud. A Lambda VM bills until you `destroy` it. A launch that fails still deletes its own VM.
+- **Firewall.** A new Lambda account lets in only SSH and ping, and the labs are served on 80 and 443. A launch attaches a firewall ruleset named `labagent-web-<region>` that opens exactly TCP 80 and 443 from anywhere. It is created on first use in that region and reused after. labagent never edits the account-wide rules and never deletes the ruleset (other instances may use it). Remove it in the Lambda console when you are done with it.
+
+For `--cloud all` the JSON is `compute.ssh-key-all/1`: `name`, `fingerprint`, `key_file`, `key_file_created`, and `clouds`, one row per cloud with `status` (`ok`, `skipped` or `failed`), `ssh_key_id`, `added_to_cloud` or `error`. `status` is `failed` (with `error` and exit 2) if the key could not be added somewhere.
 
 ## offers
 
@@ -41,7 +71,13 @@ Add `--json`. Every document has `schema` (what it is, and its version), `status
 
 ```json
 {"schema": "compute.ssh-keys/1", "status": "ok", "cloud": "shadeform", "cloud_title": "Shadeform", "fetched_at": "...", "count": 2, "warnings": [],
- "ssh_keys": [{"id": "...", "name": "laptop", "is_default": false}]}
+ "ssh_keys": [{"id": "...", "name": "laptop", "is_default": false, "fingerprint": "SHA256:..."}]}
+```
+
+```json
+{"schema": "compute.ssh-key/1", "status": "ok", "cloud": "shadeform", "cloud_title": "Shadeform", "fetched_at": "...", "warnings": [],
+ "ssh_key_id": "...", "name": "labagent", "fingerprint": "SHA256:...", "key_file": "/home/me/.labagent/keys/labagent_ed25519",
+ "key_file_created": true, "added_to_cloud": true}
 ```
 
 ```json
