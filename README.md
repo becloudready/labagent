@@ -13,27 +13,29 @@ Built for people who run labs for other people:
 * Bootcamps, training academies and college courses that need GPU, Databricks, Azure or AWS virtual labs without buying a lab platform
 * GPU and cloud providers who want developer adoption through workshops and hackathons running on their own capacity
 
-PIP setup On Mac
+## Install 
+Mac
 ```bash
 brew install pipx && pipx ensurepath
 pipx install labagent
 ```
-PIP setup on Windows
+Windows
 ```powershell
-# 1. Install prerequisites & labagent
+# Install prerequisites & labagent
 winget install Python.Python.3.14
 Invoke-WebRequest -Uri https://bootstrap.pypa.io/get-pip.py -OutFile get-pip.py
 python get-pip.py
 ```
-
+Linux
 ```bash
-pip install labagent                             # Mac: brew install pipx && pipx ensurepath && pipx install labagent
+pip install labagent
+```
+## Use
+```bash
 labagent packs                                   # list labs (add --json for a machine-readable catalog)
 labagent launch <pack> --name demo --param k=v   # build or resume
 labagent destroy <pack> --name demo              # remove what launch created
 ```
-
-Extras: `labagent[rag]` (Databricks RAG), `[rag-local]` (laptop RAG), `[rag-lab]` (laptop RAG with JupyterLab), `[aml]`, `[modal]`. Python 3.9+. On a Mac, use pipx (above): plain `pip install` puts `labagent` in `~/Library/Python/3.X/bin`, which is not on your PATH. Add `--dry-run` to any launch to see the steps.
 
 ## Packs
 
