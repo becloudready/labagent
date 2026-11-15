@@ -1,4 +1,6 @@
-# labagent: open-source hands-on Cloud & AI labs for technical training, workshops and hackathons on AWS, NeoCloud, Azure and Databricks
+# labagent: open-source hands-on Cloud & AI labs for technical training, workshops and hackathons
+
+Currently works for AWS, Azure, Neo Cloud (Lambda, Nebius, Shadeform)
 
 [![PyPI](https://img.shields.io/pypi/v/labagent)](https://pypi.org/project/labagent/)
 [![Python](https://img.shields.io/pypi/pyversions/labagent)](https://pypi.org/project/labagent/)
