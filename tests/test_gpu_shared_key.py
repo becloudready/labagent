@@ -8,7 +8,7 @@ import shutil
 import pytest
 
 from labagent import cli
-from labagent.compute import keys as keyfiles, providers
+from labagent.compute import keys as keyfiles, nebius, providers
 from labagent.compute.providers import ShadeformProvider
 from labagent.compute.lambda_cloud import LambdaProvider
 from labagent.packs.base import load_state
@@ -106,6 +106,7 @@ def both(home, monkeypatch):
     sf, lam = FakeShadeform(), FakeLambda()
     monkeypatch.setenv("SHADEFORM_API_KEY", "sf-test-secret-1")
     monkeypatch.setenv("LAMBDA_API_KEY", "lam-test-secret-1")
+    monkeypatch.setattr(nebius, "_installed_cli", lambda: None)                                    # whatever nebius login the machine running the tests has
     monkeypatch.setitem(providers.PROVIDERS, "shadeform", factory(ShadeformProvider, sf))
     monkeypatch.setitem(providers.PROVIDERS, "lambda", factory(LambdaProvider, lam))
     return sf, lam

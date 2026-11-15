@@ -54,6 +54,8 @@ DEFAULT_IMAGE = "ubuntu24.04-cuda13.0"
 IMAGES = ("ubuntu24.04-cuda13.0", "ubuntu24.04-driverless")      # the two families named in Nebius's docs and examples; any other family name may be passed as `os`
 BOOT_GIB = 300                                                    # boot disk: the lab images and Docker layers need room; it is deleted with the VM
 PRICE_PER_GPU_HOUR = {"H100": 4.50, "H200": 5.40, "B200": 8.50}   # USD, on demand, from https://nebius.com/prices on 2026-11-14
+# The preset list from the API gave no GPU memory on a real project (2026-11-14), so use the cards' known memory. B200 is left unknown (0) rather than guessed.
+VRAM_GB = {"H100": 80, "H200": 141}
 TAG_MAX = 63
 SERVICE_ACCOUNT_FILE = "nebius_service_account.json"
 OPERATION_WAIT_S = 8                                              # a create that cannot work (quota, no capacity) fails within seconds: say so now
@@ -147,11 +149,21 @@ def exchange_jwt(jwt: str) -> Dict[str, Any]:
         raise ComputeError("cannot reach auth.eu.nebius.com (network error)")
 
 
+def _cli() -> Optional[str]:
+    """The `nebius` command: on PATH, else where its installer puts it (~/.nebius/bin), which a shell profile adds to PATH but a job does not."""
+    return shutil.which("nebius") or _installed_cli()
+
+
+def _installed_cli() -> Optional[str]:
+    spot = Path.home() / ".nebius" / "bin" / "nebius"
+    return str(spot) if spot.is_file() else None
+
+
 def extra_credentials() -> Optional[str]:
     """Where a token could come from besides the environment and the key file: a service account file, or the nebius command line tool."""
     if service_account_path().is_file():
         return "service account file"
-    if shutil.which("nebius") and (Path.home() / ".nebius").exists():
+    if _cli() and (Path.home() / ".nebius").exists():
         return "nebius CLI"
     return None
 
@@ -181,9 +193,10 @@ class Auth:
                 raise ComputeError("Nebius accepted the service account but returned no token")
             self._token, self._expires = str(got["access_token"]), self._clock() + float(got.get("expires_in") or 3600)
             return self._token
-        if shutil.which("nebius"):
+        cli = _cli()
+        if cli:
             try:
-                r = self._run(["nebius", "iam", "get-access-token"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+                r = self._run([cli, "iam", "get-access-token"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
             except (OSError, subprocess.TimeoutExpired):
                 raise ComputeError("`nebius iam get-access-token` did not answer")
             tok = (r.stdout or "").strip()
@@ -351,7 +364,7 @@ class NebiusProvider(Provider):
                 if not (_same(family, query.gpu_type) and (query.num_gpus is None or gpus == query.num_gpus) and _wanted(query.instance_type, native, family, gpus)
                         and (query.max_price is None or price <= query.max_price)):
                     continue
-                vram = int(spec.get("gpuMemoryGibibytes") or (int(res.get("gpuMemoryGibibytes") or 0) // gpus))
+                vram = int(spec.get("gpuMemoryGibibytes") or (int(res.get("gpuMemoryGibibytes") or 0) // gpus)) or VRAM_GB.get(family, 0)
                 out.append(Offer(instance_type=native, vendor=VENDOR, region=region, hourly_usd=price, available=True, region_name=region, gpu_type=family,
                                  num_gpus=gpus, vram_gb=vram, vcpus=int(res.get("vcpuCount") or 0), memory_gb=int(res.get("memoryGibibytes") or 0),
                                  storage_gb=BOOT_GIB, interconnect="SXM" if name.endswith("sxm") else "", kind="vm", os_options=list(IMAGES),

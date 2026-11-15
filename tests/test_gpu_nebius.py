@@ -153,6 +153,14 @@ def test_offers_are_priced_from_the_list_cheapest_first_and_leave_out_what_the_l
     assert "ubuntu24.04-cuda13.0" in one.os_options
 
 
+def test_memory_comes_from_the_card_when_the_real_api_gives_none():
+    """A real project's preset list had no gpuMemoryGibibytes at all (2026-11-14), which showed as 0G."""
+    bare = [{"name": "gpu-h100-sxm", "metadata": {"name": "gpu-h100-sxm", "id": "computeplatform-h"}, "spec": {"presets": [{"name": "1gpu-16vcpu-200gb", "resources": {"gpuCount": 1, "vcpuCount": 16, "memoryGibibytes": 200}}]}, "status": {}},
+            {"name": "gpu-b200-sxm", "metadata": {"name": "gpu-b200-sxm", "id": "computeplatform-b"}, "spec": {"presets": [{"name": "8gpu-160vcpu-1792gb", "resources": {"gpuCount": 8, "vcpuCount": 160, "memoryGibibytes": 1792}}]}, "status": {}}]
+    offers = prov(FakeNebius(platforms=bare)).offers(OfferQuery())
+    assert [(o.gpu_type, o.vram_gb) for o in offers] == [("H100", 80), ("B200", 0)]          # B200 stays unknown instead of a guess
+
+
 def test_the_shape_other_clouds_use_works_here_too():
     p = prov()
     assert [o.instance_type for o in p.offers(OfferQuery(instance_type="H100"))] == ["gpu-h100-sxm/1gpu-16vcpu-200gb"]
@@ -358,6 +366,7 @@ def nhome(tmp_path, monkeypatch):
     for var in ("NEBIUS_IAM_TOKEN", "NEBIUS_PROJECT_ID", "NEBIUS_SUBNET_ID", "NEBIUS_SERVICE_ACCOUNT_FILE", "LAMBDA_API_KEY", "SHADEFORM_API_KEY"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(nebius.shutil, "which", lambda name: None)                              # no nebius command line tool unless a test adds one
+    monkeypatch.setattr(nebius, "_installed_cli", lambda: None)                                # nor one in ~/.nebius/bin of the machine running the tests
     (tmp_path / "keys").mkdir()
     return tmp_path
 
@@ -391,7 +400,7 @@ def test_the_nebius_command_line_tool_is_used_when_nothing_else_is_set(nhome, mo
         ran.append(argv)
         return SimpleNamespace(returncode=0, stdout="cli-token\n", stderr="")
     auth = Auth(run=fake_run)
-    assert auth.token() == "cli-token" and auth.token() == "cli-token" and ran == [["nebius", "iam", "get-access-token"]]      # asked once, kept
+    assert auth.token() == "cli-token" and auth.token() == "cli-token" and ran == [["/usr/local/bin/nebius", "iam", "get-access-token"]]      # asked once, kept, by the path that was found
     bad = Auth(run=lambda argv, **kw: SimpleNamespace(returncode=1, stdout="", stderr="not logged in"))
     with pytest.raises(ComputeError, match="gave no token"):
         bad.token()
