@@ -32,6 +32,7 @@ def test_stated_sizes_match_what_the_generator_makes():
     assert (medium["customers"], medium["accounts"], medium["alerts"]) == (2000, 2889, 552) and 281_000 <= medium["transactions"] <= 281_999
 
 
-def test_readme_lists_the_pack():
-    r = (ROOT / "README.md").read_text()
-    assert "| `aml` |" in r and "docs/aml.md" in r
+def test_the_pack_is_registered_and_has_its_guide():
+    # The README table no longer lists every pack (its focus moved to GPU and cloud labs), so check the pack and its guide instead.
+    from labagent.packs.registry import builtin
+    assert "aml" in builtin() and (ROOT / "docs/aml.md").is_file()
