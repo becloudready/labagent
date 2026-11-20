@@ -161,7 +161,7 @@ def test_a_cloud_without_an_api_key_is_skipped_and_one_that_fails_does_not_stop_
     assert cli.main(["compute", "ssh-key-add", "--cloud", "all", "--name", "labagent", "--json"]) == 2
     doc = json.loads(capsys.readouterr().out)
     assert doc["status"] == "failed" and "lambda" in doc["error"]
-    assert {r["cloud"]: r["status"] for r in doc["clouds"]} == {"lambda": "failed", "nebius": "skipped", "shadeform": "ok"}
+    assert {r["cloud"]: r["status"] for r in doc["clouds"]} == {"lambda": "failed", "nebius": "skipped", "runpod": "skipped", "shadeform": "ok"}
 
 
 @needs_keygen

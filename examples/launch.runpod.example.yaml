@@ -1,0 +1,21 @@
+# A RunPod pod with RunPod's own JupyterLab: one GPU machine, one URL, one password.
+#
+#   labagent launch  -f examples/launch.runpod.example.yaml --dry-run     # show the steps, rent nothing
+#   labagent launch  -f examples/launch.runpod.example.yaml               # BILLED until you destroy it
+#   labagent destroy -f examples/launch.runpod.example.yaml               # the same file removes what it created
+#
+# Look at what is on offer first (read only):  labagent compute offers --cloud runpod --gpu H100
+# One-time: an API key with the scopes catalog:read, pods:read, pods:write, authentication:read and authentication:write,
+# in RUNPOD_API_KEY, or under [runpod] in ~/.labagent/credentials, or alone in ~/.labagent/keys/runpod_api_key (chmod 600).
+description: H100 on RunPod Secure Cloud with the cloud's own JupyterLab
+pack: gpu-notebooks-container
+name: demo2                       # pick a name no gpu-notebooks launch uses; destroy needs the same one
+params:
+  cloud: runpod
+  instance_type: NVIDIA H100 80GB HBM3     # RunPod's GPU id; H100 (any one-GPU H100) works too, see `labagent compute offers`
+  vendor: runpod-secure                    # runpod-secure or runpod-community: which RunPod cloud the price belongs to
+  region: AP-IN-1                          # a data center id; leave out and RunPod picks one (or set location: europe | north-america | asia-pacific)
+  # The private key to log in with. Its public half is put on the pod when it is created. Set SSH_KEY_FILE, or the default below is used.
+  ssh_key_file: ${SSH_KEY_FILE:-~/.labagent/keys/labagent_ed25519}
+  # show_passwords: 'no'                   # keep the password out of the printed report (it stays in the credentials file)
+  # max_price: 5                           # most you will pay per hour, when picking by location

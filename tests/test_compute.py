@@ -133,7 +133,7 @@ def test_the_old_top_level_commands_are_gone(capsys):
 def test_the_library_answers_without_any_printing(api, capsys):
     got = compute.make("shadeform").offers(compute.OfferQuery(gpu_type="H100"))
     assert [o.vendor for o in got] == ["alpha", "beta"] and capsys.readouterr().out == ""
-    assert [c["id"] for c in compute.catalog()] == ["lambda", "nebius", "shadeform"]
+    assert [c["id"] for c in compute.catalog()] == ["lambda", "nebius", "runpod", "shadeform"]
 
 
 def test_a_compute_error_is_a_pack_error_so_packs_show_it_unchanged():

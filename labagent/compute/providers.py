@@ -62,6 +62,8 @@ class HostSpec:
     ssh_public_key: Optional[str] = None   # clouds with no key list (key_registry False) install this PUBLIC key on the host when it is created
     shade_cloud: bool = True
     tags: List[str] = field(default_factory=list)
+    jupyter_password: Optional[str] = None           # the cloud starts its own JupyterLab, protected by this (clouds with builtin_jupyter only)
+    ports: List[int] = field(default_factory=list)   # TCP ports the machine must publish besides SSH (a container has none open by default)
 
 
 @dataclass
@@ -142,6 +144,7 @@ class Provider:
     env_var = ""                            # where its API key may be set; the same key may also live in the credentials file
     key_file = ""                           # optional: a file under ~/.labagent/keys/ that holds just the API key
     auto_delete = True                      # does the cloud delete a host by itself after `hours`? False: only labagent can, so say so
+    builtin_jupyter = False                 # can it start its own JupyterLab on a machine it creates (HostSpec.jupyter_password), reachable at web_url(host, 8888)?
     key_registry = True                     # does the account keep a list of SSH keys? False: the key is installed on each host when it is created
     warnings: List[str]
 
@@ -179,6 +182,12 @@ class Provider:
 
     def delete(self, host_id: str) -> None:
         raise NotImplementedError
+
+    def web_url(self, host_id: str, port: int) -> Optional[str]:
+        """An https URL (no trailing slash) at which a web server on `port` of this host is reachable from the internet, when the cloud
+        itself provides one (a proxy in front of a container). None: the cloud has none, and the caller falls back to the port on the host's
+        address or to an ssh tunnel."""
+        return None
 
 
 # ---- credentials ------------------------------------------------------------------------------------------------------
@@ -441,8 +450,9 @@ class ShadeformProvider(Provider):
 
 from .lambda_cloud import LambdaProvider  # noqa: E402  (after the names it imports from this module exist)
 from .nebius import NebiusProvider  # noqa: E402
+from .runpod import RunpodProvider  # noqa: E402
 
-PROVIDERS: Dict[str, Callable[[], Provider]] = {"shadeform": ShadeformProvider, "lambda": LambdaProvider, "nebius": NebiusProvider}
+PROVIDERS: Dict[str, Callable[[], Provider]] = {"shadeform": ShadeformProvider, "lambda": LambdaProvider, "nebius": NebiusProvider, "runpod": RunpodProvider}
 
 
 def make(provider_id: str) -> Provider:

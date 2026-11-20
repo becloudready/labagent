@@ -421,7 +421,7 @@ def test_the_cloud_list_shows_lambda_and_where_to_put_its_key_but_never_the_key(
     (lhome / "keys" / "lambda_api_key").unlink()
     assert cli.main(["compute", "clouds"]) == 0
     assert "missing: set LAMBDA_API_KEY or [lambda] in" in capsys.readouterr().out
-    assert [c["id"] for c in catalog()] == ["lambda", "nebius", "shadeform"]
+    assert [c["id"] for c in catalog()] == ["lambda", "nebius", "runpod", "shadeform"]
 
 
 # ---- the pack on Lambda -------------------------------------------------------------------------------------------------

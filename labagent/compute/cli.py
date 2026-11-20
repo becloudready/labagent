@@ -133,7 +133,7 @@ def offers_text(cloud: str, offers: List[Offer], total: int, show_all: bool, s: 
     header = ["VENDOR", "REGION", "TYPE", "GPUS", "GPU", "VRAM", "$/H", "KIND", "LABS"] + (["STOCK"] if show_all else []) + ["OS IMAGES"]
     rows = []
     for o in offers:
-        labs = max_labs(o)
+        labs = None if o.kind == "container" else max_labs(o)       # MIG slices do not exist in a container (the JSON field is unchanged)
         rows.append([_clean(o.vendor), _clean(o.region), _clean(o.instance_type), str(o.num_gpus), _clean(o.gpu_type), f"{o.vram_gb}G",
                      f"{o.hourly_usd:.2f}", _clean(o.kind), str(labs) if labs else "-"]
                     + (["yes" if o.available else "no"] if show_all else []) + [_clean(", ".join(o.os_options)) or "-"])
@@ -145,8 +145,12 @@ def offers_text(cloud: str, offers: List[Offer], total: int, show_all: bool, s: 
         p = launch_params(cloud, first)
         flags = " ".join(f"--param {shlex.quote(f'{k}={_clean(v)}')}" for k, v in p.items())      # it is pasted into a shell
         keys = f"labagent compute ssh-keys --cloud {shlex.quote(_clean(cloud))}"
-        lines.append(f"\nNext, for the first available row (pick an os above; ssh_key_id from `{keys}`):\n  "
-                     + s(f"labagent launch gpu-notebooks --name <name> {flags} --param os=<image> --param ssh_key_id=<id>", "cyan"))
+        if first.kind == "container":
+            lines.append("\nNext, for the first available row (a container: no Docker or MIG, so the labs share the GPU):\n  "
+                         + s(f"labagent launch gpu-notebooks-container --name <name> {flags} --param labs=4", "cyan"))
+        else:
+            lines.append(f"\nNext, for the first available row (pick an os above; ssh_key_id from `{keys}`):\n  "
+                         + s(f"labagent launch gpu-notebooks --name <name> {flags} --param os=<image> --param ssh_key_id=<id>", "cyan"))
     lines.append(s("LABS = MIG slices at the smallest size, an estimate; - means unknown. Capacity changes within minutes.", "gray"))
     return "\n".join(lines)
 
