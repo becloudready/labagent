@@ -115,10 +115,11 @@ class GpuNotebooks(Pack):
     summary = "Rent a GPU VM and give each MIG slice its own JupyterLab"
     aliases = ("gpu-labs",)
     platforms = ("shadeform", "lambda", "nebius")
+    skip_containers = True                  # mode mig and shared need Docker and root on a VM; the container pack turns this off
     cost_tier = "metered"
     default_name = "gpu"
     params = [
-        Param("cloud", "shadeform", f"Whose API to call: {', '.join(sorted(providers.PROVIDERS))}, or auto: ask every cloud that has a key here and take the cheapest "
+        Param("cloud", "shadeform", f"Whose API to call: {', '.join(sorted(platforms))}, or auto: ask every cloud that has a key here and take the cheapest "
               "machine of this shape (its cloud must also have your SSH key). With auto leave vendor and region out; location narrows it"),
         Param("instance_type", "H100", "The cloud's GPU shape, e.g. H100 (one GPU) or H100x8 (eight). A cloud's own names also work: gpu_1x_h100_pcie (lambda), "
                                        "gpu-h100-sxm/1gpu-16vcpu-200gb (nebius: platform/preset)"),
@@ -379,7 +380,7 @@ class GpuNotebooks(Pack):
         ceiling = float(p["max_price"])
         found = [o for o in prov.offers(providers.OfferQuery(instance_type=str(p["instance_type"]), available_only=True,
                                                              area=None if area == "any" else area))
-                 if o.kind != "container" and (not ceiling or o.hourly_usd <= ceiling)]      # a container has no root, Docker or MIG
+                 if (not self.skip_containers or o.kind != "container") and (not ceiling or o.hourly_usd <= ceiling)]      # a container has no Docker or MIG (gpu-notebooks-container takes them)
         if not found:
             where = f" in {providers.AREAS[area][0]}" if area in providers.AREAS else ""
             under = f" at ${ceiling:.2f}/h or less" if ceiling else ""
@@ -392,6 +393,10 @@ class GpuNotebooks(Pack):
         best = self._best(ctx, prov, self._cloud(ctx))
         return {"vendor": best.vendor, "region": best.region, "os": ctx.params["os"] or providers.best_os(best.os_options) or ""}
 
+    def _auto_clouds(self):
+        """The clouds cloud=auto asks, and destroy searches when it does not know the cloud."""
+        return sorted(providers.PROVIDERS)
+
     def _auto(self, ctx: PackContext):
         """cloud=auto: the cheapest machine across every cloud that has a key here. A cloud that has none of this shape, no capacity, no key, or not
         our SSH key is skipped, with the reason in the log. Returns (provider, key facts, picked), and the chosen cloud is saved in the state."""
@@ -399,7 +404,7 @@ class GpuNotebooks(Pack):
         if p["vendor"] or p["region"]:
             raise PackError("cloud=auto picks the cloud, vendor and region itself: leave vendor and region out (location narrows the choice)")
         ranked, skipped = [], []
-        for cid in sorted(providers.PROVIDERS):
+        for cid in self._auto_clouds():
             try:
                 prov = ctx.services["provider"](cid)
                 ranked.append((self._best(ctx, prov, cid), cid, prov))
@@ -438,14 +443,14 @@ class GpuNotebooks(Pack):
                 ctx.state.update(picked)
         spec = self._spec(ctx)
         info = prov.validate(spec)
-        if ctx.params["mode"] == "mig" and info.get("gpu_type") in NO_MIG:
+        if ctx.params.get("mode") == "mig" and info.get("gpu_type") in NO_MIG:
             raise PackError(f"{info['gpu_type']} has no MIG, so it cannot be split into isolated slices. To put several labs on it anyway, "
                             "with no isolation between them, set mode=shared and labs=N")
         ending = (f"deleted by the cloud after {spec.hours} h" if prov.auto_delete else
-                  f"NOT deleted by {self._cloud(ctx)} (it has no such setting): it bills until you run `labagent destroy {PACK_ID} --name {ctx.name}`")
+                  f"NOT deleted by {self._cloud(ctx)} (it has no such setting): it bills until you run `labagent destroy {self.id} --name {ctx.name}`")
         ctx.log(f"  {self._cloud(ctx)}: {spec.instance_type} from {spec.vendor or self._cloud(ctx)} in {spec.region} at ${info['hourly_cents'] / 100:.2f}/h, "
                 + ending)
-        if ctx.params["mode"] == "shared":
+        if ctx.params.get("mode") == "shared":
             ctx.log(f"  warning: shared mode. {ctx.params['labs']} labs will share each GPU's memory with NO isolation: one lab can use it all "
                     "and make the others fail with out-of-memory errors")
         return {"cloud": self._cloud(ctx), "host_name": spec.name, "hourly_cents": info["hourly_cents"], "auto_delete": bool(prov.auto_delete),
@@ -680,9 +685,9 @@ class GpuNotebooks(Pack):
             ctx.log(f"GPU labs ready: {len(rows)} x JupyterLab, one Docker container per {st['profile']} slice of {st.get('gpu') or 'the GPU'}")
         when = f"at about {st['expires_utc']}" if st.get("expires_utc") else f"after the {p['hours']} hours you set"
         if st.get("auto_delete", True):
-            ctx.log(f"VM {st['ip']} ({self._cloud(ctx)}), deleted automatically {when}. Stop it sooner: labagent destroy {PACK_ID} --name {ctx.name}")
+            ctx.log(f"VM {st['ip']} ({self._cloud(ctx)}), deleted automatically {when}. Stop it sooner: labagent destroy {self.id} --name {ctx.name}")
         else:
-            ctx.log(f"VM {st['ip']} ({self._cloud(ctx)}) is NOT deleted automatically: it bills until you run: labagent destroy {PACK_ID} --name {ctx.name}"
+            ctx.log(f"VM {st['ip']} ({self._cloud(ctx)}) is NOT deleted automatically: it bills until you run: labagent destroy {self.id} --name {ctx.name}"
                     f"  (planned end {when})")
         ctx.log("Each learner opens their own link. The token in it is the login." if p["show_passwords"] == "yes"
                 else "Each learner has a token, kept out of this report. It is in the credentials file below.")
@@ -714,7 +719,7 @@ class GpuNotebooks(Pack):
         lines += [ui.kv("VM", f"{st['ip']}  {ui.sym['dot']}  {self._cloud(ctx)}{price}"),
                   ui.kv("Expires", f"{when}  " + s("(the cloud deletes the VM)", "gray")) if st.get("auto_delete", True)
                   else ui.kv("Billing", s(f"until you destroy it (planned end {when}, not enforced by {self._cloud(ctx)})", "red")),
-                  ui.kv("Stop", s(f"labagent destroy {PACK_ID} --name {ctx.name}", "cyan")), "",
+                  ui.kv("Stop", s(f"labagent destroy {self.id} --name {ctx.name}", "cyan")), "",
                   s("Each learner opens their own link. The token in it is the login." if p["show_passwords"] == "yes"
                     else "Each learner has a token, kept out of this report. It is in the credentials file.", "gray")]
         for r in rows:
@@ -762,7 +767,7 @@ class GpuNotebooks(Pack):
 
     def _delete_anywhere(self, ctx: PackContext) -> Optional[str]:
         """The cloud is not known: it is the one that lists a VM with this exact name and our tag. Only that VM is deleted."""
-        for cid in sorted(providers.PROVIDERS):
+        for cid in self._auto_clouds():
             try:
                 prov = ctx.services["provider"](cid)
                 h = prov.find(host_name(ctx.name), host_tag(ctx.name))
@@ -783,14 +788,14 @@ class GpuNotebooks(Pack):
             return {"action": "nothing", "detail": "nothing was rented"}           # the check stops before anything exists
         if st.get("ready"):
             return {"action": "kept", "host_id": hid, "detail": "this lab was working before this run, so it was left running. "
-                    f"Stop it: labagent destroy {PACK_ID} --name {ctx.name}"}
+                    f"Stop it: labagent destroy {self.id} --name {ctx.name}"}
         if flag(ctx.params["keep_on_failure"]):
             ctx.log("  keep_on_failure is on: the VM is still running and billing")
-            return {"action": "kept", "host_id": hid, "detail": f"keep_on_failure is on. Stop it: labagent destroy {PACK_ID} --name {ctx.name}"}
+            return {"action": "kept", "host_id": hid, "detail": f"keep_on_failure is on. Stop it: labagent destroy {self.id} --name {ctx.name}"}
         ctx.log("  the launch failed: deleting the GPU VM so it stops billing")
         try:
             gone = self._release(ctx)
         except PackError as e:
             return {"action": "failed", "host_id": hid, "detail": f"could not delete the VM ({str(e)[:200]}). Delete it in the cloud's console "
-                    f"or run: labagent destroy {PACK_ID} --name {ctx.name}"}
+                    f"or run: labagent destroy {self.id} --name {ctx.name}"}
         return {"action": "deleted" if gone else "nothing", "host_id": gone or hid}

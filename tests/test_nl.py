@@ -94,7 +94,7 @@ def test_prompt_is_small_lists_real_packs_and_asks_only_for_action_and_pack():
     sys_prompt = msgs[0]["content"]
     assert "rag-sec-tutorial" in sys_prompt and "rag-tutorial" in sys_prompt and "db-agent" in sys_prompt and "rag-ide" in sys_prompt
     assert "idle_minutes" not in sys_prompt and "profile" not in sys_prompt            # parameters are not the model's job
-    assert len(sys_prompt) < 3500                                               # short enough for a 0.5b model to follow; each pack adds about 300
+    assert len(sys_prompt) < 3700                                               # short enough for a 0.5b model to follow; each pack adds about 150 to 300 (raised from 3500 for gpu-notebooks-container)
     assert msgs[1]["content"] == "Request: deploy rag-tutorial"
 
 
@@ -202,7 +202,7 @@ def test_the_guess_guard_stays_correct_as_more_packs_exist():
     """Regression: adding a pack once made 'rag' look distinctive. A word shared by 3+ packs never backs a model's guess."""
     from labagent.nl import _distinctive_tokens, literal_pack
     tut = _distinctive_tokens(PACKS["rag-sec-tutorial"], PACKS)
-    assert "rag" not in tut and {"tutorial", "notebooks"} <= tut
+    assert "rag" not in tut and "tutorial" in tut and "notebooks" not in tut      # "notebooks" is in three pack ids now (gpu-notebooks, gpu-notebooks-container)
     assert {"agent", "databricks"} & _distinctive_tokens(PACKS["db-agent"], PACKS)
     assert literal_pack("deploy rag-tutorial on databricks", PACKS).id == "rag-sec-tutorial"      # naming the alias outright still wins
     assert literal_pack("launch rag-ide for me", PACKS).id == "rag-ide"

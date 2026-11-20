@@ -87,6 +87,26 @@ In a terminal the run is laid out for people: a banner, numbered steps with a li
 | `login_user` | Shared shell user (default `labagent`, empty = none) |
 | `login_sudo` | Give that user sudo and docker (default true) |
 
+## Containers: gpu-notebooks-container
+
+`gpu-notebooks` needs a VM with root, Docker and (for isolation) MIG. A RunPod pod is a container: no Docker daemon, no MIG, and a second JupyterLab installed inside it is fragile. `gpu-notebooks-container` installs nothing. It creates the pod with **RunPod's own JupyterLab** switched on and a password it chose, then reports the URL RunPod gives that Jupyter and the password. One pod, one JupyterLab, the whole GPU. Same launch and destroy, same key handling, and a failed launch still deletes the pod it rented.
+
+```
+labagent compute offers --cloud runpod --gpu H100
+labagent launch gpu-notebooks-container --name demo --param cloud=runpod \
+  --param 'instance_type=NVIDIA H100 NVL' --param vendor=runpod-secure --param region=US-KS-2 \
+  --param ssh_key_file=$HOME/.labagent/keys/shadeform_ed25519
+labagent destroy gpu-notebooks-container --name demo --param cloud=runpod
+```
+
+- **As a file:** [`examples/launch.runpod.example.yaml`](../examples/launch.runpod.example.yaml) holds this launch (`labagent launch -f ...`, and `destroy -f` with the same file).
+- **The URL** is RunPod's proxy: `https://<pod id>-8888.proxy.runpod.net` (seen to answer on a real pod, 2026-11-19). The password is `JUPYTER_PASSWORD`, passed when the pod is created and shown once in the report; it is also in a private file (`~/.labagent/packs/gpu-notebooks-container/<name>-credentials.csv`). If RunPod's Jupyter asks for a token instead of a password, use the same value.
+- **Only clouds that start their own JupyterLab** are accepted (`Provider.builtin_jupyter`): today RunPod. For VMs (Lambda, Nebius, Shadeform) use `gpu-notebooks`.
+- **Parameters:** `cloud` (default `runpod`), `instance_type`, `vendor`, `region`, `location`, `max_price`, `os` (a Docker image; default `runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404`, RunPod's official image), `ssh_key_id`, `ssh_key_file`, `keep_on_failure`, `hours`, `show_passwords`.
+- **Use a different `--name` than any `gpu-notebooks` launch.** Both packs name the machine and its credentials file from `--name`, so the same name in both would make one adopt or overwrite the other's.
+- **A pod bills until you destroy it.** RunPod has no auto-delete, and `hours` only sets the planned end shown in the report.
+- **Not yet proven** (as of 2026-11-19): that a pod created this way has Jupyter running and accepts the password. The docs do not say whether the login is a password or a token.
+
 ## GPUs
 
 | GPU | `mode` | Labs | Notes |

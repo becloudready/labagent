@@ -257,7 +257,7 @@ def test_no_keys_in_the_account(monkeypatch, capsys):
 
 @pytest.mark.parametrize("argv,message", [
     (["compute", "offers", "--cloud", "nowhere"], "unknown cloud"),
-    (["compute", "offers"], "--cloud is required. Available: lambda, nebius, shadeform"),
+    (["compute", "offers"], "--cloud is required. Available: lambda, nebius, runpod, shadeform"),
     (["compute", "ssh-keys"], "--cloud is required"),
     (["compute", "offers", "--cloud", "shadeform", "--limit", "0"], "--limit must be 1 or more"),
     (["compute", "offers", "--cloud", "shadeform", "--gpus", "0"], "--gpus must be 1 or more"),

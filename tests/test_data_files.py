@@ -147,6 +147,18 @@ def test_the_example_ruleset_is_a_valid_ruleset():
     rules.validate(rs)                                                                             # the engine accepts it as written
 
 
+def test_the_example_runpod_launch_file_resolves_to_the_command_it_documents(monkeypatch):
+    from labagent import spec
+    path = str(ROOT / "examples" / "launch.runpod.example.yaml")
+    monkeypatch.delenv("SSH_KEY_FILE", raising=False)
+    got = spec.load(path)
+    assert (got["pack"], got["name"]) == ("gpu-notebooks-container", "demo2")
+    assert got["params"] == {"cloud": "runpod", "instance_type": "NVIDIA H100 80GB HBM3", "vendor": "runpod-secure", "region": "AP-IN-1",
+                             "ssh_key_file": "~/.labagent/keys/labagent_ed25519"}             # `~` is expanded by the pack, not by the file
+    monkeypatch.setenv("SSH_KEY_FILE", "/keys/mine")
+    assert spec.load(path)["params"]["ssh_key_file"] == "/keys/mine"
+
+
 # ---- the CLI ----
 
 def test_run_takes_a_yaml_job_for_a_pack(tmp_path, monkeypatch, capsys):
