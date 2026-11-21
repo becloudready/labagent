@@ -7,9 +7,9 @@
 # Look at what is on offer first (read only):  labagent compute offers --cloud runpod --gpu H100
 # One-time: an API key with the scopes catalog:read, pods:read, pods:write, authentication:read and authentication:write,
 # in RUNPOD_API_KEY, or under [runpod] in ~/.labagent/credentials, or alone in ~/.labagent/keys/runpod_api_key (chmod 600).
-description: H100 on RunPod Secure Cloud with the cloud's own JupyterLab
+description: One H100 on RunPod Secure Cloud with the cloud's own JupyterLab
 pack: gpu-notebooks-container
-name: demo2                       # pick a name no gpu-notebooks launch uses; destroy needs the same one
+name: runpod-h100                 # destroy needs the same name
 params:
   cloud: runpod
   instance_type: NVIDIA H100 80GB HBM3     # RunPod's GPU id; H100 (any one-GPU H100) works too, see `labagent compute offers`

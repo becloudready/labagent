@@ -1,0 +1,22 @@
+# One H100 on Lambda Cloud, split into 7 MIG slices with one JupyterLab each: one machine, 7 URLs, 7 logins.
+#
+#   labagent launch  -f examples/launch.lambda.example.yaml --dry-run     # show the steps, rent nothing
+#   labagent launch  -f examples/launch.lambda.example.yaml               # BILLED until you destroy it: Lambda never deletes a VM for you
+#   labagent destroy -f examples/launch.lambda.example.yaml               # the same file removes what it created
+#
+# Look at what is on offer first (read only):  labagent compute offers --cloud lambda --gpu H100
+# One-time: an API key in LAMBDA_API_KEY, or under [lambda] in ~/.labagent/credentials, or alone in ~/.labagent/keys/lambda_api_key (chmod 600).
+# One-time: a key every cloud shares:  labagent compute ssh-key-add --cloud all --name labagent
+# Not yet verified on a real Lambda VM (see docs/gpu-notebooks.md): run it once before you film.
+description: One H100 on Lambda Cloud, 7 MIG lab slices
+pack: gpu-notebooks
+name: lambda-h100                 # destroy needs the same name
+params:
+  cloud: lambda
+  instance_type: H100             # one GPU (H100x8 is eight); Lambda's own name gpu_1x_h100_pcie works too
+  location: north-america         # cheapest available H100 there; or set region: us-west-3 to pin one
+  # max_price: 4                  # most you will pay per hour, when picking by location
+  mode: mig                       # one hardware-isolated slice per lab: 7 labs on one H100
+  # The private key to log in with. Set SSH_KEY_FILE, or the default below is used.
+  ssh_key_file: ${SSH_KEY_FILE:-~/.labagent/keys/labagent_ed25519}
+  # show_passwords: 'no'          # keep the tokens out of the printed report (they stay in the credentials file)
