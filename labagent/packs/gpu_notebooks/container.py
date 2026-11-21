@@ -42,7 +42,8 @@ class GpuNotebooksContainer(GpuNotebooks):
     id = PACK_ID
     title = "GPU notebooks on containers: the cloud's own JupyterLab"
     summary = "A rented GPU pod with the cloud's own JupyterLab and URL"
-    aliases = ("gpu-labs-container", "container-labs")
+    aliases = ("gpu-labs-container", "container-labs", "text-to-sql-h100")
+    outcome_aliases = ("text-to-sql-h100",)            # listed by `labagent packs`; this pack declares no Text-to-SQL notebook or dataset parameters, so none are preset
     platforms = ("runpod",)
     skip_containers = False
     params = _params()
