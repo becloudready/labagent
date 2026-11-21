@@ -26,6 +26,24 @@ def _emit(env: Envelope, output: str) -> None:
         Path(output).chmod(0o600)
 
 
+def _pack_params(pack, given):
+    """The command's user-level settings (cloud, gpu, ttl, plus any --param) as the pack's own parameters.
+
+    `gpu` is the pack's `instance_type` and `ttl` its `hours` (rounded up), unless the pack declares `gpu` or `ttl` itself.
+    A pack with no such setting is refused by name instead of silently ignoring a flag that costs money.
+    """
+    from . import instances
+    known = {p.name for p in pack.params}
+    out = dict(given)
+    for flag, target in (("gpu", "instance_type"), ("ttl", "hours")):
+        if flag in out and flag not in known:
+            value = out.pop(flag)
+            if target not in known:
+                raise ValueError(f"the pack {pack.id} has no {flag} setting (it has no {target} parameter)")
+            out[target] = value if flag == "gpu" else -(-instances.parse_ttl(value) // 60)
+    return out
+
+
 def _packs_main(args) -> int:
     from .packs import registry
     from .packs.base import run_pack
@@ -35,6 +53,8 @@ def _packs_main(args) -> int:
             return 0
         for pid, pk in sorted(registry.all_packs().items()):
             print(f"{pid:16} {pk.summary}")
+            for alias in getattr(pk, "outcome_aliases", ()):
+                print(f"{alias:16} {pk.summary} (alias of {pid})")
         return 0
     from . import spec as spec_mod
     try:
@@ -43,20 +63,47 @@ def _packs_main(args) -> int:
         if not token:
             print("error: give a pack name, or a launch file with -f", file=sys.stderr)
             return 2
+        saved = None
+        if args.cmd == "destroy" and args.pack and not args.name and not args.file:
+            from . import instances
+            saved = instances.get(args.pack)                       # `destroy demo2`: the word is an instance name
+            if saved:
+                token = saved["pack"]
         pack = registry.resolve(token)
-        if args.pack and spec["pack"] and registry.resolve(spec["pack"]).id != pack.id:
+        if args.pack and not saved and spec["pack"] and registry.resolve(spec["pack"]).id != pack.id:
             print(f"error: {args.file} is for the pack '{spec['pack']}', not '{args.pack}'", file=sys.stderr)
             return 2
-        given = {**spec["params"], **dict(kv.split("=", 1) for kv in args.param)}       # flags win over the file
+        explicit = {**spec["params"], **dict(kv.split("=", 1) for kv in args.param)}    # flags win over the file
+        ttl_minutes = None
+        explicit.update({k: getattr(args, k) for k in ("cloud", "gpu", "ttl") if getattr(args, k, None)})   # first-class flags win over --param
+        if "ttl" in explicit:
+            from . import instances
+            ttl_minutes = instances.parse_ttl(explicit["ttl"])
+        given = explicit
     except spec_mod.SpecError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
     except (KeyError, ValueError) as e:
         print(f"error: {e.args[0] if e.args else e}", file=sys.stderr)
         return 2
-    name = args.name or spec["name"] or pack.default_name
+    name = (saved["name"] if saved else None) or args.name or spec["name"] or pack.default_name
     if not name:
         print("error: --name is required for this pack", file=sys.stderr)
+        return 2
+    from . import instances
+    try:
+        if args.cmd == "destroy":
+            saved = saved or instances.get(name)
+            if saved and saved.get("pack") == pack.id:
+                old = dict(saved.get("params") or {})
+                if "instance_type" in given:
+                    old.pop("gpu", None)                          # an explicit shape beats the saved --gpu
+                if "hours" in given:
+                    old.pop("ttl", None)
+                given = {**old, **given}                          # explicit flags and params override what launch saved
+        pack_params = _pack_params(pack, given)
+    except (instances.InstanceError, ValueError) as e:
+        print(f"error: {e}", file=sys.stderr)
         return 2
     from .console import Console
     console = Console(color=args.color)                   # progress goes to stderr; styled only for a person at a terminal
@@ -64,9 +111,11 @@ def _packs_main(args) -> int:
     if pretty:
         console.banner(pack.id, args.cmd, name, args.dry_run)
     try:
-        env = run_pack(pack, args.cmd, name, given, dry_run=args.dry_run, log=console.log if pretty else None, ui=console if pretty else None)
+        env = run_pack(pack, args.cmd, name, pack_params, dry_run=args.dry_run, log=console.log if pretty else None, ui=console if pretty else None)
     finally:
         console.close()
+    if not args.dry_run:
+        _remember(args.cmd, pack, name, given, ttl_minutes, env)
     output = args.output
     if output is None and (args.json or not (pretty and sys.stdout.isatty())):
         output = "-"                    # a pipe, a file or --json gets the result document, exactly as before
@@ -75,6 +124,43 @@ def _packs_main(args) -> int:
     if pretty:
         _finish(console, env, pack.id, args.cmd, name, args.dry_run, shown_json=output is not None)
     return env.exit_code
+
+
+def _remember(action: str, pack, name: str, given, ttl_minutes, env) -> None:
+    """Keep instances.json in step with the run. Never fails a launch or a destroy: it is only a shortcut."""
+    from . import instances
+    from .packs.base import state_path
+    try:
+        if action == "launch" and (env.status == "ok" or state_path(pack.id, name).exists()):
+            instances.record(name, pack.id, given, ttl_minutes)
+        elif action == "destroy" and env.status == "ok":
+            instances.forget(name)
+    except (OSError, instances.InstanceError) as e:
+        print(f"warning: could not update {instances.path()}: {e}", file=sys.stderr)
+
+
+def _status_main(args) -> int:
+    from . import instances
+    from .packs import registry
+    try:
+        defaults = {}
+        for pid, pk in registry.all_packs().items():
+            d = {p.name: p.default for p in pk.params}
+            defaults[pid] = {"cloud": d.get("cloud"), "gpu": d.get("instance_type")}
+        items = instances.rows(defaults=defaults)
+    except instances.InstanceError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    if args.output:
+        text = json.dumps({"instances": items}, indent=2)
+        if args.output == "-":
+            print(text)
+        else:
+            Path(args.output).write_text(text, encoding="utf-8")
+            Path(args.output).chmod(0o600)
+        return 0
+    print(instances.table(items))
+    return 0
 
 
 def _finish(console, env, pack_id: str, action: str, name: str, dry_run: bool, shown_json: bool) -> None:
@@ -98,7 +184,7 @@ def _finish(console, env, pack_id: str, action: str, name: str, dry_run: bool, s
         console.line(" " + s("The result as JSON: add --json, or --output FILE.", "gray"))
 
 
-KNOWN = {"run", "packs", "rag", "dataset", "launch", "destroy", "compute", "bootstrap-path", "commands"}
+KNOWN = {"run", "packs", "rag", "dataset", "launch", "destroy", "status", "compute", "bootstrap-path", "commands"}
 
 
 def _nl_main(argv) -> int:
@@ -167,15 +253,23 @@ def main(argv=None) -> int:
     dp.add_argument("--out", required=True, help="Output directory")
     for verb, text in (("launch", "Deploy a lab pack (idempotent: re-run to resume)"), ("destroy", "Remove what a pack created")):
         lp = sub.add_parser(verb, help=text)
-        lp.add_argument("pack", nargs="?", help="Pack id (or give it in the launch file)")
+        lp.add_argument("pack", nargs="?", help="Pack id (or give it in the launch file). destroy also takes an instance name: labagent destroy demo2")
         lp.add_argument("-f", "--file", metavar="FILE", help="YAML launch file with pack, name and params. Flags on the command line override it")
         lp.add_argument("--name", help="Instance name (state key and resource suffix); defaults to the pack's own default")
+        if verb == "launch":
+            lp.add_argument("--cloud", metavar="PROVIDER", help="Cloud to use, e.g. runpod, lambda, shadeform. Same as --param cloud=...; wins over it")
+            lp.add_argument("--gpu", metavar="MODEL", help="GPU shape, e.g. H100 or H100x8. Becomes the pack's instance_type; wins over --param")
+            lp.add_argument("--ttl", metavar="DURATION", help="Planned lifetime, e.g. 90m, 2h, 1d. Becomes the pack's hours (rounded up). Only shadeform deletes "
+                                                              "the machine at that time: elsewhere it is a planned end and you must run destroy")
         lp.add_argument("--param", action="append", default=[], metavar="KEY=VALUE", help="Pack parameter, repeatable")
         lp.add_argument("--dry-run", action="store_true", help="Show the steps without running them")
         lp.add_argument("--output", default=None, help="Result envelope path, or - for stdout (default: stdout, unless it is a terminal)")
         lp.add_argument("--json", action="store_true", help="Print the result envelope even on a terminal (the default when stdout is a pipe or a file)")
         lp.add_argument("--color", choices=("auto", "always", "never"), default="auto",
                         help="Colour and live progress: auto = only on a terminal, and never with NO_COLOR set")
+    st = sub.add_parser("status", help="List the instances launched from this machine (from ~/.labagent/instances.json)")
+    st.add_argument("--output", default=None, metavar="FILE", help="Write the list as JSON to FILE, or - for stdout, instead of the table")
+    st.add_argument("--json", action="store_true", help="Same as --output -")
     sub.add_parser("bootstrap-path", help="Print the path of the packaged Terraform state-backend module")
     sub.add_parser("commands", help="List supported job commands")
     args = p.parse_args(argv)
@@ -202,6 +296,10 @@ def main(argv=None) -> int:
         return rag_cli.run(args)
     if args.cmd == "compute":
         return compute_cli.run(args)
+    if args.cmd == "status":
+        if args.json and not args.output:
+            args.output = "-"
+        return _status_main(args)
     if args.cmd in ("packs", "launch", "destroy"):
         return _packs_main(args)
     if args.cmd == "commands":
