@@ -152,11 +152,20 @@ def test_the_example_runpod_launch_file_resolves_to_the_command_it_documents(mon
     path = str(ROOT / "examples" / "launch.runpod.example.yaml")
     monkeypatch.delenv("SSH_KEY_FILE", raising=False)
     got = spec.load(path)
-    assert (got["pack"], got["name"]) == ("gpu-notebooks-container", "demo2")
+    assert (got["pack"], got["name"]) == ("gpu-notebooks-container", "runpod-h100")
     assert got["params"] == {"cloud": "runpod", "instance_type": "NVIDIA H100 80GB HBM3", "vendor": "runpod-secure", "region": "AP-IN-1",
                              "ssh_key_file": "~/.labagent/keys/labagent_ed25519"}             # `~` is expanded by the pack, not by the file
     monkeypatch.setenv("SSH_KEY_FILE", "/keys/mine")
     assert spec.load(path)["params"]["ssh_key_file"] == "/keys/mine"
+
+
+def test_the_example_lambda_launch_file_resolves_to_one_h100_in_mig_mode(monkeypatch):
+    from labagent import spec
+    monkeypatch.delenv("SSH_KEY_FILE", raising=False)
+    got = spec.load(str(ROOT / "examples" / "launch.lambda.example.yaml"))
+    assert (got["pack"], got["name"]) == ("gpu-notebooks", "lambda-h100")
+    assert got["params"] == {"cloud": "lambda", "instance_type": "H100", "location": "north-america", "mode": "mig",
+                             "ssh_key_file": "~/.labagent/keys/labagent_ed25519"}
 
 
 # ---- the CLI ----
