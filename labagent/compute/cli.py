@@ -122,7 +122,8 @@ def heading(title: str, what: str, detail: str, fetched_at: Optional[str], s: St
 
 
 def offers_text(cloud: str, offers: List[Offer], total: int, show_all: bool, s: Optional[Style] = None, title: str = "",
-                fetched_at: Optional[str] = None, dot: str = "-") -> str:
+                fetched_at: Optional[str] = None, dot: str = "-", clouds: Optional[List[str]] = None) -> str:
+    """`clouds`, when given, is the cloud of each offer (a search across every cloud): a CLOUD column is added and the launch hint uses the first row's cloud."""
     s = s or Style(False)
     shown = "on-demand" + (", including sold out" if show_all else ", available now")
     count = f"{len(offers)} of {total} offers" if total > len(offers) else f"{total} offers"
@@ -130,18 +131,21 @@ def offers_text(cloud: str, offers: List[Offer], total: int, show_all: bool, s: 
     if not offers:
         return top + ("No offers match" + ("" if show_all else " right now") + ". Capacity changes within minutes: try again, widen the filters, "
                       "or add --all to include what is sold out.")
-    header = ["VENDOR", "REGION", "TYPE", "GPUS", "GPU", "VRAM", "$/H", "KIND", "LABS"] + (["STOCK"] if show_all else []) + ["OS IMAGES"]
+    header = (["CLOUD"] if clouds else []) + ["VENDOR", "REGION", "TYPE", "GPUS", "GPU", "VRAM", "$/H", "KIND", "LABS"] + (["STOCK"] if show_all else []) + ["OS IMAGES"]
     rows = []
-    for o in offers:
+    for i, o in enumerate(offers):
         labs = None if o.kind == "container" else max_labs(o)       # MIG slices do not exist in a container (the JSON field is unchanged)
-        rows.append([_clean(o.vendor), _clean(o.region), _clean(o.instance_type), str(o.num_gpus), _clean(o.gpu_type), f"{o.vram_gb}G",
+        rows.append(([_clean(clouds[i])] if clouds else []) + [_clean(o.vendor), _clean(o.region), _clean(o.instance_type), str(o.num_gpus), _clean(o.gpu_type), f"{o.vram_gb}G",
                      f"{o.hourly_usd:.2f}", _clean(o.kind), str(labs) if labs else "-"]
                     + (["yes" if o.available else "no"] if show_all else []) + [_clean(", ".join(o.os_options)) or "-"])
     lines = [top, _table(rows, header, _painter(s) if s.on else None)]
     if total > len(offers):
         lines.append(f"\n{total - len(offers)} more not shown: narrow with --gpu, --gpus, --vendor, --region or --max-price, or raise --limit.")
-    first = next((o for o in offers if o.available), None)
+    first_i = next((i for i, o in enumerate(offers) if o.available), None)
+    first = offers[first_i] if first_i is not None else None
     if first:
+        if clouds:
+            cloud = clouds[first_i]
         p = launch_params(cloud, first)
         flags = " ".join(f"--param {shlex.quote(f'{k}={_clean(v)}')}" for k, v in p.items())      # it is pasted into a shell
         keys = f"labagent compute ssh-keys --cloud {shlex.quote(_clean(cloud))}"
@@ -191,7 +195,7 @@ def add_parser(sub) -> None:
     k.add_argument("--json", action="store_true", help="Machine-readable output for a console or script")
     k.add_argument("--color", **colour)
 
-    o = cs.add_parser("offers", help="List GPU machines you can rent right now from one cloud, cheapest first")
+    o = cs.add_parser("offers", help="List GPU machines you can rent right now, cheapest first. Without --cloud: every cloud whose API key is set")
     o.add_argument("--cloud", **cloud)
     o.add_argument("--gpu", metavar="TYPE", help="GPU family, e.g. H100, H200, A100, L40S")
     o.add_argument("--gpus", type=int, metavar="N", help="Exactly this many GPUs per machine, e.g. 8")
@@ -260,6 +264,8 @@ def _run(args, kind: str, con: Console):
     if kind == "ssh-key-add" and getattr(args, "cloud", None) == ALL:
         return _key_add_all(args, s)
     query = _query(args) if kind == "offers" else None            # a bad flag is refused before any call to the cloud
+    if kind == "offers" and not getattr(args, "cloud", None):
+        return _offers_everywhere(args, query, s, dot)
     provider = _provider(args)
     for w in getattr(provider, "warnings", []):
         print(f"warning: {w}", file=sys.stderr)
@@ -278,6 +284,37 @@ def _run(args, kind: str, con: Console):
         return _ok("offers", cloud=args.cloud, cloud_title=title, fetched_at=fetched, count=len(found), returned=len(shown), warnings=warnings,
                    offers=[offer_json(args.cloud, o) for o in shown])
     return offers_text(args.cloud, shown, len(found), args.all, s, title, fetched, dot)
+
+
+def _offers_everywhere(args, query: OfferQuery, s: Style, dot: str):
+    """No --cloud: ask every cloud whose API key is set and merge the offers, cheapest first. One cloud failing is a warning, not an error."""
+    configured = [c for c in providers.catalog() if c["credentials"]["configured"] and "offers" in c["capabilities"]]
+    if not configured:
+        raise ComputeError(f"no cloud has an API key set, so there is nothing to search. Available: {', '.join(sorted(providers.PROVIDERS))}. "
+                           "Set a key (see: labagent compute clouds) or name one with --cloud")
+    rows: List[Any] = []
+    warnings: List[str] = []
+    searched: List[str] = []
+    for c in configured:
+        try:
+            prov = providers.make(c["id"])
+            warnings += [f"{c['id']}: {w}" for w in getattr(prov, "warnings", [])]
+            rows += [(c["id"], o) for o in prov.offers(query)]
+            searched.append(c["id"])
+        except ComputeError as e:
+            warnings.append(f"{c['id']}: {e}")
+    skipped = [c["id"] for c in providers.catalog() if c not in configured]
+    if skipped:
+        warnings.append("not searched (no API key): " + ", ".join(skipped))
+    for w in warnings:
+        print(f"warning: {w}", file=sys.stderr)
+    rows.sort(key=lambda r: (not r[1].available, r[1].hourly_usd))
+    shown = rows[:args.limit] if args.limit else rows
+    fetched = _now()
+    if args.json:
+        return _ok("offers", cloud="all", cloud_title="All clouds", fetched_at=fetched, count=len(rows), returned=len(shown), warnings=warnings, searched=searched,
+                   offers=[{**offer_json(cid, o), "cloud": cid} for cid, o in shown])
+    return offers_text("all", [o for _, o in shown], len(rows), args.all, s, "All clouds (" + ", ".join(searched) + ")", fetched, dot, clouds=[c for c, _ in shown])
 
 
 def _key_name(args) -> str:

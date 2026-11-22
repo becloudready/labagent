@@ -162,9 +162,32 @@ def test_launch_on_nebius_makes_one_devlab_with_one_jupyter_and_reports_its_url_
     assert len(token) == 16 and token.isalnum() and api.dcreates()[0][2]["spec"]["template"]["inputFieldValues"]["jupyter_token"] == token
     assert row[0]["url"] == "https://aidevlab-1.devlab.example.nebius.cloud"
     text = "\n".join(lines)
-    assert f"URL       {row[0]['url']}" in text and f"Password  {token}" in text and "No shell" in text and "sign in to Nebius" in text
+    assert f"URL       {row[0]['url']}" in text and f"Password  {token}" in text and "No ssh address" in text and "sign in to Nebius" in text
     assert "destroy gpu-notebooks-container --name t" in text and "NOT deleted automatically" in text
     assert state_path("gpu-notebooks-container", "t").read_text().count(token) == 0
+
+
+def test_without_a_key_the_devlab_has_no_ssh_and_the_launch_still_works(home):  # noqa: F811
+    api = FakeDevlabs()
+    assert go("launch", api).status == "ok"
+    spec = api.dcreates()[0][2]["spec"]
+    assert "sshAuthorizedKeys" not in spec and "publicIp" not in spec
+
+
+def test_with_a_key_file_the_shared_key_is_installed_and_a_public_ip_is_asked_for(home):  # noqa: F811
+    api, lines = FakeDevlabs(), []
+    p = {"cloud": "nebius", "instance_type": "H100", "region": "eu-north1", "ssh_key_file": "/keys/mine"}
+    env = go("launch", api, p=p, log=lines.append, public_half=lambda path: PUB1)
+    assert env.status == "ok", env.to_dict()
+    spec = api.dcreates()[0][2]["spec"]
+    assert spec["sshAuthorizedKeys"] == [" ".join(PUB1.split()[:3])] and spec["publicIp"] is True
+    assert "installed on the VM when nebius-devlab creates it" in "\n".join(lines)
+
+
+def test_a_devlab_with_a_public_ip_reports_the_shell_line_as_untested():
+    h = NebiusDevlabProvider._host({"metadata": {"id": "d1", "name": "n"}, "status": {"state": "RUNNING", "publicEndpoints": ["https://x/"],
+                                                                                    "instances": [{"publicIp": "203.0.113.9"}]}})
+    assert h.ip == "203.0.113.9" and h.url == "https://x" and h.status == "active"
 
 
 def test_nebius_devlab_is_accepted_by_its_own_name_and_a_rerun_creates_nothing_new(home):  # noqa: F811

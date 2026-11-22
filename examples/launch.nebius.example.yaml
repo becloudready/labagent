@@ -1,0 +1,20 @@
+# One H100 on Nebius, split into 7 MIG slices with one JupyterLab each (a VM). For ONE JupyterLab on a Nebius Devlab (a container) see the end.
+#
+#   labagent launch  -f examples/launch.nebius.example.yaml --dry-run     # show the steps, rent nothing
+#   labagent launch  -f examples/launch.nebius.example.yaml               # BILLED until you destroy it
+#   labagent destroy -f examples/launch.nebius.example.yaml               # the same file removes what it created
+#
+# Look at what is on offer first (read only):  labagent compute offers --cloud nebius --gpu H100
+# One-time: a Nebius login (the `nebius` CLI profile or a service account), and a project (NEBIUS_PROJECT_ID) in the region you want.
+# One-time: a key every cloud shares:  labagent compute ssh-key-add --cloud all --name labagent
+# Devlab instead (one JupyterLab, no ssh needed):  labagent launch gpu-notebooks-container --name nebius-devlab --cloud nebius --gpu H100
+description: One H100 on Nebius, 7 MIG lab slices
+pack: gpu-notebooks
+name: nebius-h100                 # destroy needs the same name
+params:
+  cloud: nebius
+  instance_type: gpu-h100-sxm/1gpu-16vcpu-200gb
+  region: eu-north1               # the region of your Nebius project
+  os: ubuntu24.04-cuda13.0
+  mode: mig
+  ssh_key_file: ${SSH_KEY_FILE:-~/.labagent/keys/labagent_ed25519}

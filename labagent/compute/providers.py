@@ -145,6 +145,7 @@ class Provider:
     env_var = ""                            # where its API key may be set; the same key may also live in the credentials file
     key_file = ""                           # optional: a file under ~/.labagent/keys/ that holds just the API key
     auto_delete = True                      # does the cloud delete a host by itself after `hours`? False: only labagent can, so say so
+    ssh_optional = False                    # has_ssh False but a key is installed when one is available (a Nebius Devlab)
     has_ssh = True                          # can you log in to what it rents? False: a container with only a web address (a Nebius Devlab)
     container_only = False                  # rents containers only: a pack that needs a VM (Docker, MIG) never asks it
     builtin_jupyter = False                 # can it start its own JupyterLab on a machine it creates (HostSpec.jupyter_password), reachable at web_url(host, 8888)?

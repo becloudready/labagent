@@ -257,7 +257,6 @@ def test_no_keys_in_the_account(monkeypatch, capsys):
 
 @pytest.mark.parametrize("argv,message", [
     (["compute", "offers", "--cloud", "nowhere"], "unknown cloud"),
-    (["compute", "offers"], "--cloud is required. Available: lambda, nebius, nebius-devlab, runpod, shadeform"),
     (["compute", "ssh-keys"], "--cloud is required"),
     (["compute", "offers", "--cloud", "shadeform", "--limit", "0"], "--limit must be 1 or more"),
     (["compute", "offers", "--cloud", "shadeform", "--gpus", "0"], "--gpus must be 1 or more"),
@@ -285,3 +284,11 @@ def test_a_rejected_key_exits_2(monkeypatch, capsys):
 def test_the_commands_are_not_mistaken_for_plain_english(api, capsys):
     """Anything that is not a known command goes to the language model front end, so both names must be in KNOWN."""
     assert "compute" in cli.KNOWN
+
+
+def test_offers_without_a_cloud_and_without_any_key_says_what_to_do(monkeypatch, capsys):
+    from labagent import cli
+    monkeypatch.setattr(providers, "catalog", lambda: [{"id": "x", "title": "x", "capabilities": ["offers"], "credentials": {"configured": False}, "warnings": []}])
+    assert cli.main(["compute", "offers", "--gpu", "H100"]) == 2
+    err = capsys.readouterr().err
+    assert "no cloud has an API key set" in err and "--cloud" in err

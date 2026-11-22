@@ -110,7 +110,9 @@ class GpuNotebooksContainer(GpuNotebooks):
 
     def _check_ssh_key(self, ctx: PackContext, prov):
         if not getattr(prov, "has_ssh", True):
-            return {}                                             # a Devlab has no ssh: there is no key to check or to install
+            if getattr(prov, "ssh_optional", False) and self._key_file(ctx):
+                return self._inline_key(ctx)                      # the shared key is installed when there is one; a Devlab works without it
+            return {}                                             # no ssh: there is no key to check or to install
         return super()._check_ssh_key(ctx, prov)
 
     # ---- launch ----
@@ -173,9 +175,11 @@ class GpuNotebooksContainer(GpuNotebooks):
             ctx.log(f"  Password  (not shown: it is in {st['credentials_file']})")
         ctx.log("")
         if st.get("ip"):
-            ctx.log(f"Shell: ssh -i <your key> -p {st.get('ssh_port') or 22} {st.get('ssh_user') or 'root'}@{st['ip']}")
+            ctx.log(f"Shell: ssh -i <your key> -p {st.get('ssh_port') or 22} {st.get('ssh_user') or 'root'}@{st['ip']}"
+                    + ("   (untested on a Devlab: if it refuses, use the terminal inside JupyterLab)" if self._cloud(ctx) == "nebius-devlab" else ""))
         else:
-            ctx.log("No shell: this cloud gives a container a web address only. Open a terminal inside JupyterLab (File > New > Terminal).")
+            ctx.log("No ssh address: open a terminal inside JupyterLab (File > New > Terminal)."
+                    if self._cloud(ctx) == "nebius-devlab" else "No shell: this cloud gives a container a web address only. Open a terminal inside JupyterLab (File > New > Terminal).")
         if self._cloud(ctx) == "nebius-devlab":
             ctx.log("Nebius may ask you to sign in to Nebius before JupyterLab opens: then use the password above.")
         ctx.log(f"Same details as a file: {st['credentials_file']}")
