@@ -14,6 +14,9 @@ on 2026-11-22 against Nebius's OpenAPI file (https://api.nebius.cloud/openapi.js
 - There is no automatic deletion and no price in the API: a Devlab bills until `destroy`. Prices are the public GPU-hour list prices used for VMs
   (the container disk is billed on top and is not in these figures). Deleting a Devlab deletes its disk.
 
+- sshAuthorizedKeys (public keys) and publicIp (bool) are in DevlabSpec; status.instances[].publicIp is the address. labagent sends the shared key with
+  publicIp true when it has one. The accepted request was checked with dryRun; that ssh connects, and as which user, is NOT verified.
+
 NOT verified on a real Devlab yet: that a created Devlab reaches RUNNING, that its URL opens without a Nebius sign-in (Nebius says its tunnel
 authorizes access with IAM), and that the token is accepted by JupyterLab.
 """
@@ -45,7 +48,8 @@ class NebiusDevlabProvider(NebiusProvider):
     offer_os: tuple = ()
     container_only = True
     builtin_jupyter = True
-    has_ssh = False
+    has_ssh = False                                    # no ssh by default; the shared key is installed when there is one (ssh_optional)
+    ssh_optional = True
 
     # ---- offers: the same platforms as the VMs, as containers ----
     def offers(self, query: OfferQuery) -> List[Offer]:
@@ -64,7 +68,8 @@ class NebiusDevlabProvider(NebiusProvider):
         urls = [str(u) for u in status.get("publicEndpoints") or [] if u]
         mapped = {"RUNNING": "active" if urls else "pending", "STOPPING": "stopped", "STOPPED": "stopped", "DELETING": "deleting",
                   "ERROR": "error", "FAILED": "failed"}.get(state, "pending")
-        return Host(id=str(meta.get("id") or ""), name=str(meta.get("name") or ""), status=mapped, ip=None, ssh_user=None, ssh_port=None,
+        ips = [str(i.get("publicIp")) for i in status.get("instances") or [] if isinstance(i, dict) and i.get("publicIp")]
+        return Host(id=str(meta.get("id") or ""), name=str(meta.get("name") or ""), status=mapped, ip=ips[0] if ips else None, ssh_user=None, ssh_port=None,
                     tags=[str(v) for v in (meta.get("labels") or {}).values()], url=urls[0].rstrip("/") if urls else None)
 
     def validate(self, spec: HostSpec) -> Dict[str, Any]:
@@ -86,10 +91,14 @@ class NebiusDevlabProvider(NebiusProvider):
     def _body(self, spec: HostSpec, offer: Offer) -> Dict[str, Any]:
         if not re.fullmatch(r"[A-Za-z0-9]{16}", spec.jupyter_password or ""):
             raise ComputeError("a Nebius Devlab needs a JupyterLab token (HostSpec.jupyter_password) of exactly 16 letters and digits")
-        return {"metadata": {"parentId": self._project(), "name": spec.name, "labels": {f"labagent-{i}": _label(t) for i, t in enumerate(spec.tags)}},
+        body = {"metadata": {"parentId": self._project(), "name": spec.name, "labels": {f"labagent-{i}": _label(t) for i, t in enumerate(spec.tags)}},
                 "spec": {"template": {"id": TEMPLATE_JUPYTER, "inputFieldValues": {"jupyter_token": spec.jupyter_password}},
                          "gpu": [f"{offer.gpu_type}:{offer.num_gpus}"],
                          "disk": {"sizeBytes": str(DISK_GIB * 1024 ** 3), "type": "NETWORK_SSD"}, "workspace": {}}}
+        if spec.ssh_public_key:                           # the shared labagent key: optional, a Devlab works without it (JupyterLab has a terminal)
+            body["spec"]["sshAuthorizedKeys"] = [" ".join(str(spec.ssh_public_key).split()[:3])]
+            body["spec"]["publicIp"] = True
+        return body
 
     # ---- lifecycle ----
     def find(self, name: str, tag: str) -> Optional[Host]:

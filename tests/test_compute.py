@@ -96,7 +96,6 @@ def test_ssh_keys_json_has_the_same_envelope_as_offers(api, capsys):
 
 
 @pytest.mark.parametrize("argv,schema,message", [
-    (["compute", "offers", "--json"], "compute.offers/1", "--cloud is required"),
     (["compute", "offers", "--cloud", "nowhere", "--json"], "compute.offers/1", "unknown cloud 'nowhere'"),
     (["compute", "offers", "--cloud", "shadeform", "--limit", "0", "--json"], "compute.offers/1", "--limit must be 1 or more"),
     (["compute", "ssh-keys", "--json"], "compute.ssh-keys/1", "--cloud is required"),

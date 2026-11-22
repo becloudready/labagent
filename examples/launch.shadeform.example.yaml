@@ -1,0 +1,20 @@
+# One H100 on Shadeform (a marketplace of VMs from many providers), split into 7 MIG slices with one JupyterLab each.
+#
+#   labagent launch  -f examples/launch.shadeform.example.yaml --dry-run     # show the steps, rent nothing
+#   labagent launch  -f examples/launch.shadeform.example.yaml               # BILLED until you destroy it
+#   labagent destroy -f examples/launch.shadeform.example.yaml               # the same file removes what it created
+#
+# Compare prices across every provider first (read only):  labagent compute offers --cloud shadeform --gpu H100
+# One-time: an API key in SHADEFORM_API_KEY, or under [shadeform] in ~/.labagent/credentials.
+# One-time: a key every cloud shares:  labagent compute ssh-key-add --cloud all --name labagent
+# Shadeform gives a bare machine with no Jupyter: labagent installs it and gives each slice its own JupyterLab.
+description: One H100 on Shadeform, 7 MIG lab slices
+pack: gpu-notebooks
+name: shadeform-h100              # destroy needs the same name
+params:
+  cloud: shadeform
+  instance_type: H100
+  location: any                   # the cheapest available H100 on any provider behind Shadeform; or set vendor: and region: to pin one
+  # max_price: 4                  # most you will pay per hour
+  mode: mig
+  ssh_key_file: ${SSH_KEY_FILE:-~/.labagent/keys/labagent_ed25519}
