@@ -146,8 +146,8 @@ def offers_text(cloud: str, offers: List[Offer], total: int, show_all: bool, s: 
         flags = " ".join(f"--param {shlex.quote(f'{k}={_clean(v)}')}" for k, v in p.items())      # it is pasted into a shell
         keys = f"labagent compute ssh-keys --cloud {shlex.quote(_clean(cloud))}"
         if first.kind == "container":
-            lines.append("\nNext, for the first available row (a container: no Docker or MIG, so the labs share the GPU):\n  "
-                         + s(f"labagent launch gpu-notebooks-container --name <name> {flags} --param labs=4", "cyan"))
+            lines.append("\nNext, for the first available row (a container: no Docker or MIG, so one JupyterLab on the whole GPU):\n  "
+                         + s(f"labagent launch gpu-notebooks-container --name <name> {flags}", "cyan"))
         else:
             lines.append(f"\nNext, for the first available row (pick an os above; ssh_key_id from `{keys}`):\n  "
                          + s(f"labagent launch gpu-notebooks --name <name> {flags} --param os=<image> --param ssh_key_id=<id>", "cyan"))

@@ -75,6 +75,7 @@ class Host:
     ssh_user: Optional[str] = None
     ssh_port: Optional[int] = None
     tags: List[str] = field(default_factory=list)
+    url: Optional[str] = None       # a web address the cloud itself gives the machine (a Devlab has one and no ip)
 
 
 @dataclass
@@ -144,6 +145,8 @@ class Provider:
     env_var = ""                            # where its API key may be set; the same key may also live in the credentials file
     key_file = ""                           # optional: a file under ~/.labagent/keys/ that holds just the API key
     auto_delete = True                      # does the cloud delete a host by itself after `hours`? False: only labagent can, so say so
+    has_ssh = True                          # can you log in to what it rents? False: a container with only a web address (a Nebius Devlab)
+    container_only = False                  # rents containers only: a pack that needs a VM (Docker, MIG) never asks it
     builtin_jupyter = False                 # can it start its own JupyterLab on a machine it creates (HostSpec.jupyter_password), reachable at web_url(host, 8888)?
     key_registry = True                     # does the account keep a list of SSH keys? False: the key is installed on each host when it is created
     warnings: List[str]
@@ -450,9 +453,10 @@ class ShadeformProvider(Provider):
 
 from .lambda_cloud import LambdaProvider  # noqa: E402  (after the names it imports from this module exist)
 from .nebius import NebiusProvider  # noqa: E402
+from .nebius_devlab import NebiusDevlabProvider  # noqa: E402
 from .runpod import RunpodProvider  # noqa: E402
 
-PROVIDERS: Dict[str, Callable[[], Provider]] = {"shadeform": ShadeformProvider, "lambda": LambdaProvider, "nebius": NebiusProvider, "runpod": RunpodProvider}
+PROVIDERS: Dict[str, Callable[[], Provider]] = {"shadeform": ShadeformProvider, "lambda": LambdaProvider, "nebius": NebiusProvider, "nebius-devlab": NebiusDevlabProvider, "runpod": RunpodProvider}
 
 
 def make(provider_id: str) -> Provider:

@@ -48,6 +48,15 @@ Every table starts with whose answer it is: `Shadeform . GPU offers . on-demand,
 - **No automatic deletion.** Lambda has no setting that deletes an instance after some hours, so `hours` cannot be enforced by the cloud. A Lambda VM bills until you `destroy` it. A launch that fails still deletes its own VM.
 - **Firewall.** A new Lambda account lets in only SSH and ping, and the labs are served on 80 and 443. A launch attaches a firewall ruleset named `labagent-web-<region>` that opens exactly TCP 80 and 443 from anywhere. It is created on first use in that region and reused after. labagent never edits the account-wide rules and never deletes the ruleset (other instances may use it). Remove it in the Lambda console when you are done with it.
 
+## Nebius Devlab
+
+`--cloud nebius-devlab` is Nebius's container product (Serverless AI Devlabs): the same login, project (so region) and platforms as [Nebius](#nebius), but the offers are `kind=container` with vendor `nebius-devlab`, and a launch creates a Devlab instead of a VM (REST `POST /ai/v1/devlabs`). A Devlab has its own HTTPS address and no ssh, Docker or MIG, so it belongs to [`gpu-notebooks-container`](gpu-notebooks.md#containers-gpu-notebooks-container) (one JupyterLab), never to `gpu-notebooks`.
+
+- **Template.** Nebius's own JupyterLab template (`vmapptemplate-g00devlab-jupyter`, PyTorch, persistent `/home`). Its login is a token of exactly 16 letters and digits, which labagent chooses and prints.
+- **GPU.** `gpu: ["H100:1"]`. Nebius lists b200, b300, h100, h200, l40s and rtx6000. The container disk is 100 GiB (the template's minimum is 90) and is deleted with the Devlab.
+- **No automatic deletion, and no price in the API.** A Devlab bills until `destroy`. Prices are the same public GPU-hour list prices as the VMs; the disk is extra.
+- **Checked (2026-11-22):** the OpenAPI routes, the status values, and `dryRun` creates on a real project (nothing created). **Not yet:** a real Devlab running, its address opening, the token accepted.
+
 ## RunPod
 
 `--cloud runpod` is RunPod (API v2 at `api.runpod.io`). **A RunPod machine is a pod: a container, not a VM.** Every offer has `kind=container`. A pod has no Docker daemon of its own and cannot change GPU state (`nvidia-smi -mig 1` answers "Insufficient Permissions"), so the `gpu-notebooks` pack, which needs root, Docker with the NVIDIA runtime and MIG, skips RunPod offers. Use the [`gpu-notebooks-container`](gpu-notebooks.md#containers-gpu-notebooks-container) pack for a pod with RunPod's own JupyterLab, or `labagent compute ...` to look around.

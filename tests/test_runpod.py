@@ -331,5 +331,5 @@ def test_a_container_offer_points_at_the_container_pack_and_shows_no_mig_estimat
     got = prov().offers(OfferQuery(gpu_type="H100", region="EU-RO-1"))
     text = offers_text("runpod", got, len(got), False)
     assert not re.search(r"container\s+7\b", text)                                      # no MIG estimate in the LABS column
-    assert "labagent launch gpu-notebooks-container --name <name> --param cloud=runpod" in text and "--param labs=4" in text
+    assert "labagent launch gpu-notebooks-container --name <name> --param cloud=runpod" in text and "labs" not in text.split("Next")[1]
     assert "launch gpu-notebooks --name" not in text and "ssh_key_id=<id>" not in text
