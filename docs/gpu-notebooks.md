@@ -101,10 +101,18 @@ labagent destroy gpu-notebooks-container --name demo --param cloud=runpod
 
 - **As a file:** [`examples/launch.runpod.example.yaml`](../examples/launch.runpod.example.yaml) holds this launch (`labagent launch -f ...`, and `destroy -f` with the same file).
 - **The URL** is RunPod's proxy: `https://<pod id>-8888.proxy.runpod.net` (seen to answer on a real pod, 2026-11-19). The password is `JUPYTER_PASSWORD`, passed when the pod is created and shown once in the report; it is also in a private file (`~/.labagent/packs/gpu-notebooks-container/<name>-credentials.csv`). If RunPod's Jupyter asks for a token instead of a password, use the same value.
-- **Only clouds that start their own JupyterLab** are accepted (`Provider.builtin_jupyter`): today RunPod. For VMs (Lambda, Nebius, Shadeform) use `gpu-notebooks`.
+- **One JupyterLab, always.** A container (a pod, a Devlab) gets exactly one JupyterLab on the whole GPU. **Many labs per machine (MIG slices, one container each) exist only on VMs and bare metal**, through `gpu-notebooks`, which refuses container offers.
+- **Only clouds that start their own JupyterLab** are accepted (`Provider.builtin_jupyter`): RunPod and Nebius Devlabs. For VMs (Lambda, Nebius, Shadeform) use `gpu-notebooks`.
+- **Nebius Devlab:** `--param cloud=nebius` (or `nebius-devlab`) means Nebius's container product, with Nebius's own JupyterLab template. A Devlab has no ssh, so no key is needed and the report says there is no shell (use a terminal inside JupyterLab). `os` is refused (the template is Nebius's), and the token is 16 letters and digits.
+  ```
+  labagent compute offers --cloud nebius-devlab --gpu H100
+  labagent launch gpu-notebooks-container --name dl1 --param cloud=nebius --param instance_type=H100
+  labagent destroy gpu-notebooks-container --name dl1 --param cloud=nebius
+  ```
 - **Parameters:** `cloud` (default `runpod`), `instance_type`, `vendor`, `region`, `location`, `max_price`, `os` (a Docker image; default `runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404`, RunPod's official image), `ssh_key_id`, `ssh_key_file`, `keep_on_failure`, `hours`, `show_passwords`.
 - **Use a different `--name` than any `gpu-notebooks` launch.** Both packs name the machine and its credentials file from `--name`, so the same name in both would make one adopt or overwrite the other's.
 - **A pod bills until you destroy it.** RunPod has no auto-delete, and `hours` only sets the planned end shown in the report.
+- **Nebius Devlab: not yet proven on a real Devlab** (as of 2026-11-22). Checked: Nebius's API description, the supported GPU models, the 90 GiB disk minimum and the token rule (all by `dryRun` create calls on a real project, nothing created). Open: that the Devlab reaches RUNNING, that its address opens without a Nebius sign-in (Nebius says its tunnel authorizes access with IAM), and that JupyterLab takes the token.
 - **Not yet proven** (as of 2026-11-19): that a pod created this way has Jupyter running and accepts the password. The docs do not say whether the login is a password or a token.
 
 ## GPUs

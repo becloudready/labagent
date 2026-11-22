@@ -395,7 +395,7 @@ class GpuNotebooks(Pack):
 
     def _auto_clouds(self):
         """The clouds cloud=auto asks, and destroy searches when it does not know the cloud."""
-        return sorted(providers.PROVIDERS)
+        return sorted(c for c, k in providers.PROVIDERS.items() if not getattr(k, "container_only", False))      # a VM pack never asks a container-only cloud
 
     def _auto(self, ctx: PackContext):
         """cloud=auto: the cheapest machine across every cloud that has a key here. A cloud that has none of this shape, no capacity, no key, or not
@@ -461,7 +461,7 @@ class GpuNotebooks(Pack):
         if not hid:
             return False
         h = self._provider(ctx).get(hid)
-        return bool(h and h.status == "active" and h.ip and ctx.state.get("ip") == h.ip)    # done only once the address is saved too
+        return bool(h and h.status == "active" and (h.ip or h.url) and ctx.state.get("ip") == h.ip)    # done only once the address is saved too
 
     def _host(self, ctx: PackContext):
         prov = self._provider(ctx)
@@ -493,7 +493,7 @@ class GpuNotebooks(Pack):
                 raise PackError("the VM was deleted while starting (the cloud failed it" + (", or `hours` ran out)" if ctx.state.get("auto_delete", True) else ")"))
             if any(w in h.status for w in ("error", "fail")):
                 raise PackError(f"the cloud reports the VM as '{h.status}'. Run destroy, then launch again")
-            if h.status == "active" and h.ip:
+            if h.status == "active" and (h.ip or h.url):          # a container with only a web address (a Devlab) has no ip
                 return h
             if clock() > deadline:
                 raise PackError("the VM is not active yet after 20 minutes. Run launch again to keep waiting, or destroy to release it")

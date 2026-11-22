@@ -94,6 +94,7 @@ class RunpodProvider(Provider):
     env_var = "RUNPOD_API_KEY"
     key_file = "runpod_api_key"                     # ~/.labagent/keys/runpod_api_key holds just the key
     auto_delete = False
+    container_only = True
     builtin_jupyter = True                          # RunPod's official images start JupyterLab on 8888 when asked (startJupyter), behind its HTTPS proxy
     key_registry = False                            # the key is put in the pod's PUBLIC_KEY when it is created, so nothing in the account is changed
 

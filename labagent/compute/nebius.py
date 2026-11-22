@@ -235,6 +235,9 @@ class NebiusProvider(Provider):
     key_file = "nebius_iam_token"                     # ~/.labagent/keys/nebius_iam_token holds just the token
     auto_delete = False
     key_registry = False                              # the key goes into the VM at creation, not into the account
+    vendor = VENDOR                                   # NebiusDevlabProvider changes these three: same project, same platforms, a container instead of a VM
+    offer_kind = "vm"
+    offer_os = IMAGES
 
     @classmethod
     def extra_credentials(cls) -> Optional[str]:
@@ -341,7 +344,7 @@ class NebiusProvider(Provider):
             return []                                  # a project is in one region
         if query.area not in (None, "", "any") and nebius_area(region) != query.area:
             return []
-        if not _same(VENDOR, query.vendor) or query.kind not in (None, "", "vm"):
+        if not _same(self.vendor, query.vendor) or query.kind not in (None, "", self.offer_kind):
             return []
         try:
             platforms = self._list("/compute/v1/platforms")
@@ -365,9 +368,9 @@ class NebiusProvider(Provider):
                         and (query.max_price is None or price <= query.max_price)):
                     continue
                 vram = int(spec.get("gpuMemoryGibibytes") or (int(res.get("gpuMemoryGibibytes") or 0) // gpus)) or VRAM_GB.get(family, 0)
-                out.append(Offer(instance_type=native, vendor=VENDOR, region=region, hourly_usd=price, available=True, region_name=region, gpu_type=family,
+                out.append(Offer(instance_type=native, vendor=self.vendor, region=region, hourly_usd=price, available=True, region_name=region, gpu_type=family,
                                  num_gpus=gpus, vram_gb=vram, vcpus=int(res.get("vcpuCount") or 0), memory_gb=int(res.get("memoryGibibytes") or 0),
-                                 storage_gb=BOOT_GIB, interconnect="SXM" if name.endswith("sxm") else "", kind="vm", os_options=list(IMAGES),
+                                 storage_gb=BOOT_GIB, interconnect="SXM" if name.endswith("sxm") else "", kind=self.offer_kind, os_options=list(self.offer_os),
                                  area_hint=nebius_area(region)))
         out.sort(key=lambda o: (o.hourly_usd, o.region, o.instance_type))
         return out

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import csv
 import secrets
+import string
 import time
 from typing import List
 
@@ -30,7 +31,7 @@ def _params() -> List[Param]:
         if p.name not in KEEP:
             continue
         if p.name == "cloud":
-            out.append(Param("cloud", "runpod", "Whose API to call. Only clouds that start their own JupyterLab on a machine they create: runpod. (auto picks among those)"))
+            out.append(Param("cloud", "runpod", "Whose API to call. Only clouds that start their own JupyterLab on a container they create: runpod, nebius-devlab (nebius means this one here). auto picks among those"))
         elif p.name == "os":
             out.append(Param("os", None, "The machine's Docker image. Default runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404 (RunPod's official images start JupyterLab)"))
         else:
@@ -44,7 +45,7 @@ class GpuNotebooksContainer(GpuNotebooks):
     summary = "A rented GPU pod with the cloud's own JupyterLab and URL"
     aliases = ("gpu-labs-container", "container-labs", "text-to-sql-h100")
     outcome_aliases = ("text-to-sql-h100",)            # listed by `labagent packs`; this pack declares no Text-to-SQL notebook or dataset parameters, so none are preset
-    platforms = ("runpod",)
+    platforms = ("runpod", "nebius-devlab")
     skip_containers = False
     params = _params()
     output_keys = ("cloud", "host_name", "host_id", "vendor", "region", "ip", "ssh_user", "ssh_port", "hourly_cents", "expires_utc", "gpu", "url",
@@ -62,7 +63,7 @@ class GpuNotebooksContainer(GpuNotebooks):
             rows = list(csv.DictReader(f.open(encoding="utf-8")))
             pw = rows[0].get("token", "") if rows else ""
         if not pw:
-            pw = secrets.token_urlsafe(18)
+            pw = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16))      # the one shape every cloud accepts (Nebius: exactly 16 letters and digits)
             f.parent.mkdir(parents=True, exist_ok=True)
             f.touch(mode=0o600)
             f.chmod(0o600)
@@ -93,13 +94,24 @@ class GpuNotebooksContainer(GpuNotebooks):
         except (TypeError, ValueError):
             raise PackError("max_price must be a number of dollars per hour, or 0 for no limit")
         cloud = str(p["cloud"])
-        if cloud not in ("auto",) + self.platforms:
+        if cloud not in ("auto", "nebius") + self.platforms:
             raise PackError(f"cloud {cloud} cannot start its own JupyterLab on a machine it creates, so this pack cannot use it. "
-                            f"Clouds that can: {', '.join(self.platforms)}. For VMs (lambda, nebius, shadeform) use gpu-notebooks")
+                            f"Clouds that can: {', '.join(self.platforms)} (nebius means nebius-devlab here). For VMs (lambda, nebius, shadeform) use gpu-notebooks")
         return 1
 
     def _auto_clouds(self):
         return self.platforms
+
+    @staticmethod
+    def _cloud(ctx: PackContext) -> str:
+        """`nebius` here means its container product, the Devlab: the VMs of the same cloud belong to gpu-notebooks."""
+        c = GpuNotebooks._cloud(ctx)
+        return "nebius-devlab" if c == "nebius" else c
+
+    def _check_ssh_key(self, ctx: PackContext, prov):
+        if not getattr(prov, "has_ssh", True):
+            return {}                                             # a Devlab has no ssh: there is no key to check or to install
+        return super()._check_ssh_key(ctx, prov)
 
     # ---- launch ----
     def deploy_steps(self, ctx: PackContext) -> List[Step]:
@@ -113,8 +125,9 @@ class GpuNotebooksContainer(GpuNotebooks):
         prov = self._provider(ctx)
         base = prov.web_url(st["host_id"], JUPYTER_PORT)
         if not base:
-            raise PackError(f"{self._cloud(ctx)} gave no URL for its JupyterLab. Use the ssh tunnel: ssh -N -L {JUPYTER_PORT}:localhost:{JUPYTER_PORT} "
-                            f"-p {st.get('ssh_port') or 22} {st.get('ssh_user') or 'root'}@{st['ip']}")
+            tunnel = (f" Use the ssh tunnel: ssh -N -L {JUPYTER_PORT}:localhost:{JUPYTER_PORT} -p {st.get('ssh_port') or 22} {st.get('ssh_user') or 'root'}@{st['ip']}"
+                      if st.get("ip") else "")
+            raise PackError(f"{self._cloud(ctx)} gave no URL for its JupyterLab.{tunnel}")
         pw = self._password(ctx)
         f = credentials_path(ctx.name)
         with f.open("w", encoding="utf-8", newline="") as fh:
@@ -148,9 +161,9 @@ class GpuNotebooksContainer(GpuNotebooks):
                 "JupyterLab is starting (see the warning above)")
         when = f"at about {st['expires_utc']}" if st.get("expires_utc") else f"after the {p['hours']} hours you set"
         if st.get("auto_delete", True):
-            ctx.log(f"Machine {st['ip']} ({self._cloud(ctx)}), deleted automatically {when}. Stop it sooner: labagent destroy {PACK_ID} --name {ctx.name}")
+            ctx.log(f"Machine {st.get('ip') or st.get('host_id')} ({self._cloud(ctx)}), deleted automatically {when}. Stop it sooner: labagent destroy {PACK_ID} --name {ctx.name}")
         else:
-            ctx.log(f"Machine {st['ip']} ({self._cloud(ctx)}) is NOT deleted automatically: it bills until you run: labagent destroy {PACK_ID} --name {ctx.name}"
+            ctx.log(f"Machine {st.get('ip') or st.get('host_id')} ({self._cloud(ctx)}) is NOT deleted automatically: it bills until you run: labagent destroy {PACK_ID} --name {ctx.name}"
                     f"  (planned end {when})")
         ctx.log("")
         ctx.log(f"  URL       {row['url']}")
@@ -159,6 +172,11 @@ class GpuNotebooksContainer(GpuNotebooks):
         else:
             ctx.log(f"  Password  (not shown: it is in {st['credentials_file']})")
         ctx.log("")
-        ctx.log(f"Shell: ssh -i <your key> -p {st.get('ssh_port') or 22} {st.get('ssh_user') or 'root'}@{st['ip']}")
+        if st.get("ip"):
+            ctx.log(f"Shell: ssh -i <your key> -p {st.get('ssh_port') or 22} {st.get('ssh_user') or 'root'}@{st['ip']}")
+        else:
+            ctx.log("No shell: this cloud gives a container a web address only. Open a terminal inside JupyterLab (File > New > Terminal).")
+        if self._cloud(ctx) == "nebius-devlab":
+            ctx.log("Nebius may ask you to sign in to Nebius before JupyterLab opens: then use the password above.")
         ctx.log(f"Same details as a file: {st['credentials_file']}")
         return {"ready": True}              # from here a failed rerun must not delete a machine that works

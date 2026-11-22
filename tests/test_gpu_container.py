@@ -57,7 +57,7 @@ def test_launch_asks_runpod_for_its_own_jupyter_and_reports_the_proxy_url_and_pa
     (_, _, body), = api.creates()
     row = list(csv.DictReader(credentials_path("t").open()))[0]
     assert body["startJupyter"] is True and body["ports"] == ["22/tcp", "8888/http"]
-    assert body["env"]["JUPYTER_PASSWORD"] == row["token"] and len(row["token"]) >= 20 and body["env"]["PUBLIC_KEY"] == PUB1
+    assert body["env"]["JUPYTER_PASSWORD"] == row["token"] and len(row["token"]) == 16 and row["token"].isalnum() and body["env"]["PUBLIC_KEY"] == PUB1
     assert row["url"] == "https://pod1-8888.proxy.runpod.net" and row["login_url"] == f"{row['url']}/?token={row['token']}"
     text = "\n".join(lines)
     assert f"URL       {row['url']}" in text and f"Password  {row['token']}" in text and "NOT deleted automatically" in text
@@ -100,7 +100,7 @@ def test_a_url_that_never_answers_is_a_warning_not_a_failed_launch(home):  # noq
 
 def test_a_cloud_that_cannot_start_its_own_jupyter_is_refused_before_anything_is_rented(home):  # noqa: F811
     api = FakeRunpod()
-    for cloud in ("lambda", "shadeform", "nebius"):
+    for cloud in ("lambda", "shadeform"):
         env = go("launch", api, p=params(cloud=cloud))
         assert env.status == "failed" and "cannot start its own JupyterLab" in str(env.to_dict())
     assert api.creates() == []
