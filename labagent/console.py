@@ -73,7 +73,7 @@ class Console:
     """Pretty output on one stream (stderr for progress, stdout for tables). Safe to call from several threads."""
 
     def __init__(self, stream: Any = None, color: str = "auto", env: Optional[Dict[str, str]] = None, tick: float = 0.12,
-                 clock=time.monotonic, width: Optional[int] = None):
+                 clock=time.monotonic, width: Optional[int] = None, verbose: bool = False):
         self.out = stream if stream is not None else sys.stderr
         self.color = color_enabled(self.out, color, env)
         self.s = Style(self.color)
@@ -89,6 +89,10 @@ class Console:
         self._drawn = False
         self._frame = 0
         self._later: List[Any] = []
+        self.verbose = verbose
+        self._step: Optional[str] = None                 # the step that is running, None between steps
+        self._held: List[str] = []                       # detail lines a quiet run keeps back, shown only if the step fails
+        self._priced = False                             # the one offer line (cloud, place and price) has been shown
 
     # ---- low level ----
     def _write(self, text: str) -> None:
@@ -160,8 +164,18 @@ class Console:
 
     # ---- what packs print ----
     def log(self, msg: str) -> None:
-        """A line a pack wrote with ctx.log: warnings in yellow, details indented, links and prices picked out."""
+        """A line a pack wrote with ctx.log: warnings in yellow, details indented, links and prices picked out.
+
+        A quiet run (the default; --verbose turns it off) shows, while a step runs, only warnings and the first line with a price (which machine was picked
+        and what it costs). Every other detail (ssh key checks, repeats of the offer, progress notes) is held back and printed only if that step fails.
+        The report step, which prints the URL and logins, always shows everything."""
         s = self.s
+        if not self.verbose and self._step is not None and self._step != "report" and msg.strip() and not msg.startswith("  warning: "):
+            if not self._priced and _PRICE.search(msg):
+                self._priced = True
+            else:
+                self._held.append(msg)
+                return
         if not msg.strip():
             self.line("")
         elif msg.startswith("  warning: "):
@@ -191,17 +205,22 @@ class Console:
 
     def step_start(self, n: int, total: int, step_id: str, title: str) -> None:
         self._stop_spin()
+        self._step, self._held = step_id, []
         self.line(self._head(self.sym["run"], n, total, step_id, title, "cyan"))
         self._t0 = self.clock()
         self._start_spin()
 
     def step_done(self, seconds: float) -> None:
         self._stop_spin()
+        self._step, self._held = None, []
         self.line("      " + self.s(self.sym["ok"], "green", "bold") + " " + self.s(elapsed_text(seconds), "gray"))
         self._flush_later()
 
     def step_failed(self, seconds: float) -> None:
         self._stop_spin()
+        held, self._step, self._held = self._held, None, []
+        for msg in held:                                   # what the quiet run kept back is the evidence for why it failed
+            self.log(msg)
         self.line("      " + self.s(self.sym["fail"], "red", "bold") + " " + self.s("failed after " + elapsed_text(seconds), "red"))
         self._flush_later()
 
