@@ -106,7 +106,7 @@ def _packs_main(args) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 2
     from .console import Console
-    console = Console(color=args.color)                   # progress goes to stderr; styled only for a person at a terminal
+    console = Console(color=args.color, verbose=getattr(args, "verbose", False))                   # progress goes to stderr; styled only for a person at a terminal
     pretty = console.color
     if pretty:
         console.banner(pack.id, args.cmd, name, args.dry_run)
@@ -267,6 +267,7 @@ def main(argv=None) -> int:
         lp.add_argument("--json", action="store_true", help="Print the result envelope even on a terminal (the default when stdout is a pipe or a file)")
         lp.add_argument("--color", choices=("auto", "always", "never"), default="auto",
                         help="Colour and live progress: auto = only on a terminal, and never with NO_COLOR set")
+        lp.add_argument("-v", "--verbose", action="store_true", help="Show every detail line while the steps run (ssh key checks and so on). Quiet by default on a terminal")
     st = sub.add_parser("status", help="List the instances launched from this machine (from ~/.labagent/instances.json)")
     st.add_argument("--output", default=None, metavar="FILE", help="Write the list as JSON to FILE, or - for stdout, instead of the table")
     st.add_argument("--json", action="store_true", help="Same as --output -")

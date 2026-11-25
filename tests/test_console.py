@@ -64,7 +64,7 @@ def test_elapsed_text(seconds, text):
 
 def test_the_timer_redraws_one_line_and_logs_stay_above_it():
     out = Stream(tty=True)
-    ui = Console(out, color="always", tick=0.01)
+    ui = Console(out, color="always", tick=0.01, verbose=True)
     assert ui.live
     ui.step_start(1, 2, "host", "Create the VM")
     time.sleep(0.15)
@@ -293,3 +293,67 @@ def test_a_failure_before_any_step_ran_does_not_name_a_step():
     text = strip_ansi(out.getvalue())
     assert "launch stopped before any step ran" in text and "step ?" not in text
     assert "unknown parameter(s) for gpu-notebooks: profile" in text and "labagent destroy gpu-notebooks --name demo" in text
+
+
+# ---- quiet by default: only the offer line (machine and price) shows while a step runs ----
+
+def _quiet(verbose=False):
+    import io
+    out = io.StringIO()
+    from labagent.console import Console
+    c = Console(stream=out, color="never", verbose=verbose)
+    return c, out
+
+
+def _preflight(c):
+    c.step_start(1, 7, "preflight", "Check the offer")
+    c.log("  ssh key: labagent (6ca1e4eb), SHA256:Jo1Atc48, found in shadeform by the fingerprint of labagent_ed25519")
+    c.log("  shadeform: the cheapest of 5 available is hyperstack in montreal-canada-2 at $2.50/h")
+    c.log("  shadeform: H100 from hyperstack in montreal-canada-2 at $2.50/h, deleted by the cloud after 4 h")
+
+
+def test_a_quiet_run_shows_only_the_offer_line_and_hides_the_ssh_key_and_repeats():
+    c, out = _quiet()
+    _preflight(c)
+    c.step_done(1.0)
+    text = out.getvalue()
+    assert "the cheapest of 5 available is hyperstack in montreal-canada-2 at $2.50/h" in text
+    assert "ssh key" not in text and "SHA256" not in text and "deleted by the cloud" not in text
+
+
+def test_warnings_always_show_and_the_report_step_shows_everything():
+    c, out = _quiet()
+    c.step_start(2, 7, "host", "Create")
+    c.log("  warning: capacity is tight")
+    c.log("  waiting for the machine")
+    c.step_done(2.0)
+    c.step_start(7, 7, "report", "Print the URL")
+    c.log("  URL       https://x.example")
+    c.log("  Password  abc")
+    c.step_done(0.1)
+    text = out.getvalue()
+    assert "capacity is tight" in text and "waiting for the machine" not in text
+    assert "https://x.example" in text and "Password  abc" in text
+
+
+def test_what_was_held_back_is_printed_when_the_step_fails():
+    c, out = _quiet()
+    _preflight(c)
+    c.step_failed(1.0)
+    assert "ssh key: labagent" in out.getvalue() and "failed after" in out.getvalue()
+
+
+def test_verbose_shows_every_detail_line():
+    c, out = _quiet(verbose=True)
+    _preflight(c)
+    c.step_done(1.0)
+    assert "ssh key: labagent" in out.getvalue() and "deleted by the cloud" in out.getvalue()
+
+
+def test_the_launch_and_destroy_commands_take_verbose(tmp_path, monkeypatch, capsys):
+    from labagent import cli
+    monkeypatch.setenv("LABAGENT_HOME", str(tmp_path))
+    for cmd in ("launch", "destroy"):
+        with pytest.raises(SystemExit) as e:
+            cli.main([cmd, "--help"])
+        assert e.value.code == 0 and "--verbose" in capsys.readouterr().out
