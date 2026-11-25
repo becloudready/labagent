@@ -1,6 +1,6 @@
 # labagent: open-source hands-on Cloud & AI labs for technical training, workshops and hackathons
 
-Currently works for AWS, Azure, Neo Cloud (Lambda, Nebius, Shadeform)
+GPU neoclouds: RunPod, Lambda, Nebius, Shadeform
 
 [![PyPI](https://img.shields.io/pypi/v/labagent)](https://pypi.org/project/labagent/)
 [![Python](https://img.shields.io/pypi/pyversions/labagent)](https://pypi.org/project/labagent/)
@@ -58,7 +58,7 @@ Put the whole event in one YAML file. Launch every learner's sandbox before the 
 labagent launch -f hackathon.yaml    # one lab per learner
 labagent destroy -f hackathon.yaml   # removes everything the
 ```
-## Azure Lab Services is retiring (June 28, 2027)
+## Azure Lab Services Alternative
 
 ```bash
 export LABAGENT_ALLOWED_AZURE_SUBSCRIPTIONS=$(az account show --query id -o tsv)
