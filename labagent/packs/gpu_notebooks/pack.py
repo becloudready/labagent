@@ -483,6 +483,22 @@ class GpuNotebooks(Pack):
         h = self._wait_active(ctx, prov, h.id)
         return {"host_id": h.id, "ip": h.ip, "ssh_user": h.ssh_user, "ssh_port": h.ssh_port, "expires_utc": expires}
 
+    def _elsewhere(self, ctx: PackContext, prov) -> str:
+        """After a VM went to an error state at one datacenter, say which one, and name other available offers: the same launch would pick the same cheapest one again."""
+        st, p = ctx.state, ctx.params
+        vendor, region = p["vendor"] or st.get("vendor"), p["region"] or st.get("region")
+        if not vendor and not region:
+            return ""
+        try:
+            others = [o for o in prov.offers(providers.OfferQuery(instance_type=str(p["instance_type"]), available_only=True))
+                      if (o.vendor, o.region) != (vendor, region) and o.kind != "container"][:2]
+        except Exception:                                                   # a hint must never hide the real error
+            others = []
+        text = f" at {vendor or self._cloud(ctx)} in {region}: that datacenter failed this machine, which is on its side, not yours"
+        if others:
+            text += ". Try another: " + "; ".join(f"--param vendor={o.vendor} --param region={o.region} (${o.hourly_usd:.2f}/h)" for o in others)
+        return text
+
     def _wait_active(self, ctx: PackContext, prov, host_id: str) -> Host:
         sleep = ctx.services.get("sleep", time.sleep)
         clock = ctx.services.get("clock", time.monotonic)
@@ -492,7 +508,7 @@ class GpuNotebooks(Pack):
             if h is None or h.status in GONE:
                 raise PackError("the VM was deleted while starting (the cloud failed it" + (", or `hours` ran out)" if ctx.state.get("auto_delete", True) else ")"))
             if any(w in h.status for w in ("error", "fail")):
-                raise PackError(f"the cloud reports the VM as '{h.status}'. Run destroy, then launch again")
+                raise PackError(f"the cloud reports the VM as '{h.status}'" + self._elsewhere(ctx, prov) + ". The VM was deleted so it stops billing")
             if h.status == "active" and (h.ip or h.url):          # a container with only a web address (a Devlab) has no ip
                 return h
             if clock() > deadline:
