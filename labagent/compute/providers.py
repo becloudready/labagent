@@ -251,6 +251,16 @@ def read_secret(section: str, env_var: str, path: Optional[Path] = None, key_fil
 
 # ---- Shadeform --------------------------------------------------------------------------------------------------------
 
+def free_key_name(name: str, taken, fingerprint: str) -> str:
+    """A name the account does not use yet. If another key already has this name (a different key: a same key is found by its fingerprint before this),
+    add ours as NAME-<first characters of its fingerprint>, so one stale `labagent` key in an account does not block every launch."""
+    names = {k.name for k in taken}
+    if name not in names:
+        return name
+    tail = "".join(ch for ch in fingerprint.split(":")[-1] if ch.isalnum())[:8] or "2"
+    return f"{name}-{tail}"[:60]
+
+
 class ApiError(Exception):
     def __init__(self, status: int, body: str):
         super().__init__(f"HTTP {status}")
@@ -386,6 +396,7 @@ class ShadeformProvider(Provider):
             if k.fingerprint == want:
                 return k, False
         line = " ".join(public_key.split()[:3])                 # type, key and comment: no newline, nothing else
+        name = free_key_name(name, self.ssh_keys(), want)
         try:
             data = self._call("POST", "/v1/sshkeys/add", {"name": name, "public_key": line})
         except ApiError as e:

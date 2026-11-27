@@ -25,7 +25,7 @@ import urllib.request
 from typing import Any, Dict, List, Optional, Tuple
 
 from .errors import ComputeError
-from .providers import (NAME_RE, USER_AGENT, ApiError, Host, HostSpec, Http, Offer, OfferQuery, Provider, SshKey, credentials_path,
+from .providers import (NAME_RE, free_key_name, USER_AGENT, ApiError, Host, HostSpec, Http, Offer, OfferQuery, Provider, SshKey, credentials_path,
                         fingerprint_of, read_secret)
 
 BASE = "https://cloud.lambda.com"                  # cloud.lambda.ai and cloud.lambdalabs.com still answer but are marked deprecated
@@ -186,6 +186,7 @@ class LambdaProvider(Provider):
             if k.fingerprint == want:
                 return k, False
         line = " ".join(public_key.split()[:3])
+        name = free_key_name(name, self.ssh_keys(), want)
         try:
             # With a public_key, Lambda stores it. Without one it would generate a pair and send the private half: never asked for.
             data = self._data("POST", "/api/v1/ssh-keys", {"name": name, "public_key": line}) or {}

@@ -197,3 +197,16 @@ def test_the_name_is_checked_before_a_file_is_made_or_a_cloud_called(both, capsy
     assert cli.main(["compute", "ssh-key-add", "--cloud", "all", "--name", "bad;name", "--json"]) == 2
     assert "--name must be" in json.loads(capsys.readouterr().out)["error"]
     assert sf.calls == [] and lam.calls == []
+
+
+def test_a_different_key_already_named_labagent_does_not_block_adding_ours():
+    from labagent.compute.providers import ShadeformProvider
+    import base64
+    new = "ssh-ed25519 " + base64.b64encode(b"labagent-test-key-three").decode() + " c@labagent"
+    api = FakeShadeform()
+    api.keys[0]["name"] = "labagent"                                  # a stale key under our name, with another fingerprint
+    key, added = ShadeformProvider(http=api).add_ssh_key("labagent", new)
+    assert added and key.name != "labagent" and key.name.startswith("labagent-")
+    assert [c for c in api.calls if c[1] == "/v1/sshkeys/add"][0][2]["name"] == key.name
+    again, added = ShadeformProvider(http=api).add_ssh_key("labagent", new)         # found by fingerprint now: nothing added twice
+    assert not added and again.id == key.id
