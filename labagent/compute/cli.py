@@ -356,7 +356,8 @@ def _key_add_all(args, s: Style):
             doc.update(status="failed", error="the key could not be added to: " + ", ".join(failed))
         return doc
     shown = [[_clean(r["cloud"]), {"ok": ("added" if r.get("added_to_cloud") else "already there"), "skipped": "skipped", "failed": "FAILED"}[r["status"]],
-              _clean(r.get("ssh_key_id") or r.get("error") or "")] for r in rows]
+              _clean(r.get("ssh_key_id") or r.get("error") or "")] for r in rows
+             if not r.get("error", "").startswith("no API key")]            # a cloud you have no key for is not a result: leave it out of the table (--json still lists it)
     lines = [s(("Created " if made else "Using ") + path, "bold") + s(" (private half, keep it on this machine)", "gray"),
              s(f"One key for every cloud: {name}  {fingerprint}", "bold"), "", _table(shown, ["CLOUD", "RESULT", "KEY ID OR REASON"]), "",
              "Launches find this key in each account by its fingerprint: no ssh_key_id to copy. The private file is used from",

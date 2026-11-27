@@ -197,3 +197,13 @@ def test_the_name_is_checked_before_a_file_is_made_or_a_cloud_called(both, capsy
     assert cli.main(["compute", "ssh-key-add", "--cloud", "all", "--name", "bad;name", "--json"]) == 2
     assert "--name must be" in json.loads(capsys.readouterr().out)["error"]
     assert sf.calls == [] and lam.calls == []
+
+
+@needs_keygen
+def test_the_table_leaves_out_clouds_with_no_api_key_but_json_still_lists_them(both, home, capsys):
+    assert cli.main(["compute", "ssh-key-add", "--cloud", "all", "--name", "labagent"]) == 0
+    text = capsys.readouterr().out
+    assert "no API key" not in text and "skipped" not in text.split("KEY ID OR REASON")[1].split("Launches find")[0].replace("skipped  nothing to add", "")
+    assert "shadeform" in text
+    assert cli.main(["compute", "ssh-key-add", "--cloud", "all", "--name", "labagent", "--json"]) == 0
+    assert any("no API key" in (r.get("error") or "") for r in json.loads(capsys.readouterr().out)["clouds"])
