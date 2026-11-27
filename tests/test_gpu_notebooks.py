@@ -687,3 +687,10 @@ def test_a_shared_lab_that_sees_two_gpus_is_caught(home, monkeypatch):
     ssh = FakeSsh(partition=[(0, facts, "")], gpu="2 NVIDIA GeForce RTX 5090 32607")
     env = run("launch", FakeShadeform(), params=rtx_params(mode="shared", labs=2), ssh=ssh)
     assert env.status == "failed" and "expected exactly one GPU" in json.dumps(env.to_dict())
+
+
+def test_a_vm_in_an_error_state_names_the_datacenter_and_other_offers(home):
+    env = run("launch", FakeShadeform(statuses=("pending", "error")))
+    text = json.dumps(env.to_dict())
+    assert env.status == "failed" and "reports the VM as 'error'" in text
+    assert "massedcompute in desmoines-usa-1" in text and "not yours" in text and "deleted so it stops billing" in text
